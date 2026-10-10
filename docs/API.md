@@ -37,6 +37,12 @@ central boundary is:
 - `GET /api/auth/demo-accounts`: synthetic role-specific demo credentials in
   development only; returns `404` in production and test modes. Responses are
   private and non-cacheable. Never use these accounts for real patient data.
+- `POST /api/auth/demo-login` (`{ role?: 'user' | 'doctor' | 'hospital' | 'pharmacy' | 'news' }`):
+  starts a passwordless, isolated synthetic sandbox (201 + opaque token). Unknown
+  roles return `400 INVALID_DEMO_ROLE`; `404 DEMO_DISABLED` when
+  `PUBLIC_DEMO_ENABLED=false`. Professional demo tokens only unlock
+  `GET /api/portals/:role/workspace` and `POST|PATCH|DELETE /api/portals/:role/demo/items[/:itemId]`
+  for their own role; see `docs/unified-authentication.md`.
 - Public users: bearer token returned by `/api/auth/*`, attached through
   `src/services/authClient.ts`.
 - Doctors/hospitals/pharmacy/news: separate bearer tokens scoped to one

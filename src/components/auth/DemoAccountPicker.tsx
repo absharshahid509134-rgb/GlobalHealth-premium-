@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ArrowRight, ChevronDown, FlaskConical, LoaderCircle } from 'lucide-react';
-import type { PlatformRole } from '../../core/platformRoles';
+import { ROLE_NAMES, type PlatformRole } from '../../core/platformRoles';
 
 export interface DemoAccount {
   label: string;
@@ -11,7 +11,8 @@ export interface DemoAccount {
 type DemoAccountCatalog = Partial<Record<PlatformRole, DemoAccount[]>>;
 
 /**
- * Shows a passwordless, isolated User Portal sandbox wherever it is enabled.
+ * Shows a passwordless, isolated sandbox for the selected portal (User, Doctor,
+ * Hospital, Pharmacy or News Management) wherever the public demo is enabled.
  * Legacy seeded credentials remain available only from development servers.
  */
 export function DemoAccountPicker({
@@ -53,7 +54,8 @@ export function DemoAccountPicker({
     };
   }, [role]);
 
-  const showPublicDemo = role === 'user' && publicDemoAvailable && Boolean(onStartPublicDemo);
+  const showPublicDemo = publicDemoAvailable && Boolean(onStartPublicDemo);
+  const portalName = ROLE_NAMES[role];
   if (!accounts.length && !showPublicDemo) return null;
 
   const startDemo = async () => {
@@ -69,13 +71,13 @@ export function DemoAccountPicker({
   return (
     <div className="space-y-3">
       {showPublicDemo && (
-        <section className="rounded-xl border border-emerald-200 bg-emerald-50/75 p-3.5 text-left" aria-label="Public User Portal demo">
+        <section className="rounded-xl border border-emerald-200 bg-emerald-50/75 p-3.5 text-left" aria-label={`Public ${portalName} Portal demo`}>
           <div className="flex items-start gap-2.5">
             <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-emerald-100 text-emerald-800">
               <FlaskConical className="h-4 w-4" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="text-sm font-extrabold text-emerald-950">Explore the User Portal demo</p>
+              <p className="text-sm font-extrabold text-emerald-950">Explore the {portalName} Portal demo</p>
               <p className="mt-1 text-[11px] leading-relaxed text-emerald-900/80">
                 Open a private sandbox with synthetic health records. Changes stay isolated and are cleared when you sign out or after 4 hours of inactivity. Please do not enter real health information.
               </p>

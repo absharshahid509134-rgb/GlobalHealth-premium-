@@ -4,6 +4,7 @@ import { PlatformRole, ROLE_NAMES } from '../../core/platformRoles';
 import { AuthSubView, PublicUserAccount } from '../../types/auth';
 import { NewsStaffSignupScreen } from '../news/NewsWorkspaceAccessScreens';
 import { DemoAccount, DemoAccountPicker } from './DemoAccountPicker';
+import { startPublicDemoSession } from '../../services/authService';
 
 export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
   role: Exclude<PlatformRole, 'user'>; mode: AuthSubView;
@@ -102,6 +103,24 @@ export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
     finally { setBusy(false); }
   };
 
+  // Passwordless, isolated sandbox for this portal. The server issues an opaque
+  // demo token; identity and role are re-verified through /api/auth/me.
+  const startDemo = async () => {
+    setError(''); setMessage(''); setBusy(true);
+    try {
+      const result = await startPublicDemoSession(role);
+      if (!result?.success || !result.token) throw new Error(result?.error || 'Unable to start the demo right now. Please try again.');
+      const response = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${result.token}` }, cache: 'no-store' });
+      const session = await response.json();
+      if (!response.ok) throw new Error(session.error || 'Unable to verify the demo session. Please try again.');
+      const authenticatedRole = String(session.portalRole || session.user?.portalRole || '').trim().toLowerCase();
+      if (authenticatedRole !== role) throw new Error('The demo session did not match this portal. Please try again.');
+      setMessage('Your private demo is ready.');
+      onSuccess(session.user, result.token);
+    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to start the demo right now. Please try again.'); }
+    finally { setBusy(false); }
+  };
+
   const applyDemoAccount = (account: DemoAccount) => {
     setFormValues((current) => ({ ...current, identifier: account.identifier, password: account.password }));
     setError('');
@@ -118,7 +137,7 @@ export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
         {input('identifier', signup || role === 'news' || role === 'pharmacy' ? 'Official email' : 'Email or username', signup ? 'email' : 'text')}
         {!recover && input('password', 'Password', 'password', signup ? 8 : undefined)}
         {signup && <>{input('pharmacyName', 'Pharmacy legal name', 'text', 3)}{input('licenseNumber', 'License number', 'text', 4)}{input('contactName', 'Contact name')}{input('phone', 'Phone number', 'tel')}</>}
-        {!signup && !recover && !reset && <DemoAccountPicker role={role} disabled={busy} onSelect={applyDemoAccount} />}
+        {!signup && !recover && !reset && <DemoAccountPicker role={role} disabled={busy} onSelect={applyDemoAccount} onStartPublicDemo={startDemo} />}
       </>}
       <button className="w-full rounded-xl bg-medical-700 px-4 py-3 font-bold text-white hover:bg-medical-800" type="submit">{busy ? 'Please wait…' : challenge ? 'Verify and enter portal' : recover ? 'Request recovery' : reset ? 'Update password' : signup ? 'Submit for verification' : 'Sign in'}</button>
     </fieldset>

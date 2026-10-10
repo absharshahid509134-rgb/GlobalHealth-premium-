@@ -14,6 +14,7 @@ import { INITIAL_HOSPITALS, INITIAL_DEPARTMENTS, INITIAL_PORTAL_DOCTORS, INITIAL
 import { detectSafetyRisk } from './src/core/ai/aiSafety';
 import { retrieveVerifiedKnowledge } from './src/core/ai/aiKnowledge';
 import { loadRuntimeConfig } from './src/server/config';
+import { DemoPortalStore, isDemoPortalRole } from './src/server/demoPortal';
 import { createLogger } from './src/server/logger';
 import { apiError } from './src/server/errors';
 import {
@@ -730,6 +731,9 @@ async function startServer() {
     }
     return generated;
   })();
+  // Isolated sandboxes for the Doctor, Hospital, Pharmacy and News Management
+  // portals. Memory only: never persisted, never wired to a real realm store.
+  const demoPortals = new DemoPortalStore(createHash('sha256').update(`demo-portal-store:${demoSessionSecret}`).digest('hex'));
   const DEMO_USER_PREFIX = 'usr-demo-';
   const ENDED_DEMO_USER_IDS = new Set<string>();
   const markDemoUserEnded = (userId: string) => {
@@ -1760,7 +1764,10 @@ async function startServer() {
     if (token) {
       const session = ACTIVE_SESSIONS.get(token);
       const signedDemoUserId = parseDemoToken(token);
-      if (session?.isDemoSession) {
+      if (demoPortals.parseToken(token)) {
+        // Professional demo sandbox: discard its data and keep the token dead.
+        demoPortals.end(token);
+      } else if (session?.isDemoSession) {
         cleanupEphemeralDemoAccount(session.userId);
       } else if (signedDemoUserId) {
         // Valid demo token whose sandbox was lost to a restart: still end it.
@@ -2104,6 +2111,7 @@ async function startServer() {
     return res.json({
       success: true,
       demoSessionAvailable: true,
+      demoRoles: ['user', 'doctor', 'hospital', 'pharmacy', 'news'],
       accounts: DEVELOPMENT_DEMO_ACCOUNTS || {}
     });
   });
@@ -2175,10 +2183,34 @@ async function startServer() {
     if (!config.publicDemoEnabled) {
       return res.status(404).json({ success: false, code: 'DEMO_DISABLED', error: 'The public demo is currently unavailable.' });
     }
-    const limit = hitRateLimit('public-demo-login', String(req.ip || 'unknown'), 30, 60 * 60 * 1000);
+    const requestedRole = req.body?.role === undefined || req.body?.role === '' ? 'user' : req.body.role;
+    if (requestedRole !== 'user' && !isDemoPortalRole(requestedRole)) {
+      return res.status(400).json({ success: false, code: 'INVALID_DEMO_ROLE', error: 'Unknown demo portal.' });
+    }
+    // Development servers share one preview IP across acceptance suites.
+    const maxDemoStarts = config.nodeEnv === 'development' ? 300 : 30;
+    const limit = hitRateLimit('public-demo-login', String(req.ip || 'unknown'), maxDemoStarts, 60 * 60 * 1000);
     if (!limit.allowed) {
       res.setHeader('Retry-After', String(Math.ceil(limit.retryInMs / 1000)));
       return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many demo sessions were started. Please try again later.' });
+    }
+
+    // Professional portals: isolated sandbox, never a real realm account.
+    if (isDemoPortalRole(requestedRole)) {
+      const portalSession = demoPortals.start(requestedRole);
+      const identity = demoPortals.identity(portalSession);
+      res.setHeader('Cache-Control', 'no-store, private');
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      return res.status(201).json({
+        success: true,
+        message: 'Your private synthetic demo is ready.',
+        role: requestedRole,
+        user: identity.user,
+        portalRole: requestedRole,
+        destination: ROLE_DESTINATIONS[requestedRole],
+        token: portalSession.token,
+        expiresAt: portalSession.expiresAt
+      });
     }
 
     const user = createEphemeralDemoUser();
@@ -7945,6 +7977,13 @@ Request ID: ${requestId}`,
     const publicUser = authenticate(req);
     if (publicUser) return { role: 'user', user: { ...sanitizeUser(publicUser), portalRole: 'user' }, profile: sanitizeUser(publicUser) };
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+    // Passwordless professional demo sandbox. Valid only for the demo
+    // workspace API; it is not a session in any real doctor/hospital/pharmacy/
+    // news realm, so it can never reach real organization data.
+    if (config.publicDemoEnabled && demoPortals.looksLikeToken(token)) {
+      const demoSession = demoPortals.resolve(token);
+      return demoSession ? demoPortals.identity(demoSession) : null;
+    }
     let role: PlatformRole;
     let id: string;
     let name: string;
@@ -7986,6 +8025,16 @@ Request ID: ${requestId}`,
     if (!isPlatformRole(req.params.role) || identity.role !== req.params.role) {
       return res.status(403).json({ success: false, code: 'ACCESS_DENIED', error: 'This account cannot access that workspace.' });
     }
+    // Isolated demo sandboxes return their own synthetic, session-private data.
+    if (config.publicDemoEnabled && demoPortals.looksLikeToken(bearerToken(req))) {
+      const demoSession = demoPortals.resolve(bearerToken(req));
+      if (!demoSession || demoSession.role !== identity.role) {
+        return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Your demo session has ended.' });
+      }
+      res.setHeader('Cache-Control', 'no-store, private');
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      return res.json(demoPortals.workspace(demoSession));
+    }
     // Account profile only, never the shared demo datasets used by the old
     // portal prototypes. Domain APIs retain their own resource-level guards.
     const { role, profile, user } = identity;
@@ -8011,6 +8060,54 @@ Request ID: ${requestId}`,
       notifications = (AUTHORITY_NOTIFICATIONS.get(accountId) || []).map(n => ({ id: n.id, title: n.title, body: n.body }));
     }
     return res.json({ success: true, role, accountId: user.id, profile, records: records.slice(-200), activity: activity.slice(-50).reverse(), notifications: notifications.slice(0, 50) });
+  });
+
+  // ---- Professional demo sandbox actions ---------------------------------
+  // Add / update / remove synthetic items inside the visitor's own sandbox.
+  // Real accounts are rejected: these routes never reach any real data store.
+  function bearerToken(req: any): string {
+    return String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
+  }
+  function demoSandboxFor(req: any, res: any) {
+    res.setHeader('Cache-Control', 'no-store, private');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    if (!config.publicDemoEnabled || !isPlatformRole(req.params.role) || !isDemoPortalRole(req.params.role)) {
+      res.status(404).json({ success: false, code: 'DEMO_UNAVAILABLE', error: 'The demo sandbox is not available for this workspace.' });
+      return null;
+    }
+    const session = demoPortals.resolve(bearerToken(req));
+    if (!session) {
+      res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Your demo session has ended. Please start a new demo.' });
+      return null;
+    }
+    if (session.role !== req.params.role) {
+      res.status(403).json({ success: false, code: 'ACCESS_DENIED', error: 'This account cannot access that workspace.' });
+      return null;
+    }
+    return session;
+  }
+  const demoMutationStatus = { NOT_FOUND: 404, INVALID: 400, LIMIT_REACHED: 409 } as const;
+  const demoMutation = (res: any, result: ReturnType<DemoPortalStore['addItem']>, successStatus = 200) => {
+    if (!result.ok) return res.status(demoMutationStatus[result.code]).json({ success: false, code: result.code, error: result.error });
+    return res.status(successStatus).json({ success: true, item: result.value });
+  };
+  app.post('/api/portals/:role/demo/items', (req, res) => {
+    const session = demoSandboxFor(req, res);
+    if (!session) return;
+    const limit = hitRateLimit('demo-portal-write', session.token, 120, 10 * 60 * 1000);
+    if (!limit.allowed) return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many changes. Please slow down.' });
+    const { sectionId, title, detail, status } = req.body || {};
+    return demoMutation(res, demoPortals.addItem(session, sectionId, title, detail, status), 201);
+  });
+  app.patch('/api/portals/:role/demo/items/:itemId', (req, res) => {
+    const session = demoSandboxFor(req, res);
+    if (!session) return;
+    return demoMutation(res, demoPortals.setStatus(session, req.params.itemId, req.body?.status));
+  });
+  app.delete('/api/portals/:role/demo/items/:itemId', (req, res) => {
+    const session = demoSandboxFor(req, res);
+    if (!session) return;
+    return demoMutation(res, demoPortals.removeItem(session, req.params.itemId));
   });
 
   // ---- Hospital portal auth endpoints ----
@@ -8449,6 +8546,8 @@ Request ID: ${requestId}`,
     }
   }, 60 * 1000);
   demoExpirySweeper.unref();
+  const demoPortalSweeper = setInterval(() => { demoPortals.sweep(); }, 60 * 1000);
+  demoPortalSweeper.unref();
 
   const aiConvId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
