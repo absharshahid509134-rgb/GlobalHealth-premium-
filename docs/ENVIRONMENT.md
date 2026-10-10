@@ -12,6 +12,8 @@ and the affected operation fails closed.
 | `NODE_ENV` | Yes (`production`) | Defaults to `development`; production security constraints off. |
 | `PORT` | Recommended | Defaults to `3000`. Invalid value logs a warning and uses `3000`. |
 | `APP_URL` | Recommended | Used for deep links; falls back to `http://localhost:<port>`. |
+| `DEMO_SESSION_SECRET` | Recommended in production | Signs demo session tokens so a visitor's demo is transparently re-created after a restart, redeploy or cold start instead of showing "session expired". Set the same value on every instance. If unset, a secret is persisted in `data/runtime/`; on ephemeral disks it changes per deploy and the browser silently opens a fresh demo instead. |
+| `TRUST_PROXY` | Optional | Reverse-proxy hops trusted for `req.ip` (default `1` in production, off in development). Needed so per-visitor rate limits, including demo sign-in, are not shared by everyone behind the host's proxy. Use `false` if the app is exposed directly. |
 | `CORS_ORIGIN` | Yes for cross-origin UI | Production accepts only same-origin unless allowlisted. `*` rejected. |
 | `PUBLIC_DEMO_ENABLED` | Optional | Enables the passwordless, synthetic User Portal sandbox by default in local/deployed runtimes; set `false` to disable. Always off by default in tests. |
 | `GEMINI_API_KEY` | Optional (AI disabled) | AI assistant returns a "not configured" response. |
