@@ -25,6 +25,7 @@ test('loadRuntimeConfig parses production mode and explicit origins', () => {
 
 test('public demo can be disabled and is off by default in test mode', () => {
   assert.equal(loadRuntimeConfig({ NODE_ENV: 'test' }).publicDemoEnabled, false);
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'test', PUBLIC_DEMO_ENABLED: 'true' }).publicDemoEnabled, true);
   assert.equal(loadRuntimeConfig({ NODE_ENV: 'production', PUBLIC_DEMO_ENABLED: 'false' }).publicDemoEnabled, false);
   assert.equal(loadRuntimeConfig({ NODE_ENV: 'development', PUBLIC_DEMO_ENABLED: 'false' }).publicDemoEnabled, false);
 });

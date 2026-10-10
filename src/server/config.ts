@@ -57,7 +57,8 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   // A synthetic, isolated demo is available by default in local and deployed
   // runtimes. Tests stay closed unless explicitly enabled to avoid accidental
   // exposure from fixture servers.
-  const publicDemoEnabled = !isTest && (env.PUBLIC_DEMO_ENABLED || '').trim().toLowerCase() !== 'false';
+  const publicDemoOverride = (env.PUBLIC_DEMO_ENABLED || '').trim().toLowerCase();
+  const publicDemoEnabled = publicDemoOverride === 'true' || (!isTest && publicDemoOverride !== 'false');
 
   if (isProduction && !ghAdminKey) {
     warnings.push('GH_ADMIN_KEY is not set; pharmacy-partner administrative verification is disabled.');
