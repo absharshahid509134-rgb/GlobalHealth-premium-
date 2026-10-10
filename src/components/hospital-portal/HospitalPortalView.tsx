@@ -127,10 +127,6 @@ const HospitalPortalInner: React.FC<HospitalPortalViewProps> = ({ onBackToPublic
             button: 'bg-indigo-600 hover:bg-indigo-700 text-white',
             chip: 'border-indigo-200 bg-indigo-50 text-indigo-900 hover:bg-indigo-100',
           }}
-          demoAccounts={[
-            { id: 'apex', label: 'Apex Heart Institute', identifier: 'apex_admin', password: 'Password@123' },
-            { id: 'mayo', label: 'Mayo Clinic Rochester', identifier: 'mayo_admin', password: 'Password@123' },
-          ]}
           onValidate={async (identifier, password) => {
             const result = await loginWithHospitalCredentials(identifier, password);
             return { success: result.success, error: result.error };

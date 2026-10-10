@@ -14,7 +14,8 @@ import { INITIAL_HOSPITALS, INITIAL_DEPARTMENTS, INITIAL_PORTAL_DOCTORS, INITIAL
 import { detectSafetyRisk } from './src/core/ai/aiSafety';
 import { retrieveVerifiedKnowledge } from './src/core/ai/aiKnowledge';
 import { loadRuntimeConfig } from './src/server/config';
-import { DemoPortalStore, isDemoPortalRole } from './src/server/demoPortal';
+import { isLegacyDemoSessionToken, isLegacyDemoUserId } from './src/core/legacyDemoAccounts';
+import { removeDemoUserAccounts, removeDemoDomainAccounts } from './src/server/accountMigration';
 import { createLogger } from './src/server/logger';
 import { apiError } from './src/server/errors';
 import {
@@ -71,49 +72,6 @@ async function startServer() {
   const PORT = config.port;
   const IS_PRODUCTION = config.isProduction;
 
-  // Development-only credentials for the legacy seeded role fixtures. Public
-  // deployments get a separate passwordless, isolated user demo session; no
-  // shared production password is ever returned to the browser.
-  const DEVELOPMENT_DEMO_ACCOUNTS: Record<PlatformRole, Array<{ label: string; identifier: string; password: string }>> | null = config.nodeEnv === 'development' && config.publicDemoEnabled ? {
-    user: [
-      { label: 'Sarah Jenkins — patient demo', identifier: 'sarah.jenkins@example.com', password: 'Password123!' },
-      { label: 'Alex Turner — patient demo', identifier: 'alex.turner@example.com', password: 'Password123!' },
-    ],
-    doctor: [
-      { label: 'Dr. Anita Rao — internal medicine', identifier: 'doc-1', password: 'Doctor123!' },
-      { label: 'Dr. Vikram Mehta — cardiology', identifier: 'doc-2', password: 'Doctor123!' },
-      { label: 'Dr. Alexandra Chen — interventional cardiology', identifier: 'doc_alex_chen', password: 'chen123' },
-      { label: 'Dr. Robert Harrison — orthopaedic surgery', identifier: 'doc_rob_harrison', password: 'harr123' },
-      { label: 'Dr. Priya Sharma — endocrinology', identifier: 'doc_priya_sharma', password: 'priya123' },
-      { label: 'Dr. Marcus Vance — oncology', identifier: 'doc_marcus_vance', password: 'vance123' },
-    ],
-    hospital: [
-      { label: 'Apex Institute of Medical Sciences', identifier: 'apex_admin', password: 'Password@123' },
-      { label: 'Cleveland Clinic Abu Dhabi', identifier: 'cleveland_ad_admin', password: 'Password@123' },
-      { label: 'Singapore General Hospital', identifier: 'sgh_admin', password: 'Password@123' },
-      { label: 'Mayo Clinic Rochester', identifier: 'mayo_admin', password: 'Password@123' },
-      { label: 'St. Peter Royal Hospital', identifier: 'stpeter_admin', password: 'Password@123' },
-      { label: 'Metropolitan Academic Medical Center', identifier: 'metro_admin', password: 'Password@123' },
-      { label: 'All India Institute of Medical Sciences', identifier: 'aiims_admin', password: 'Password@123' },
-      { label: 'Charité — Universitätsmedizin Berlin', identifier: 'charite_admin', password: 'Password@123' },
-    ],
-    pharmacy: [
-      { label: 'Apex Central Clinical Dispensary — Dr. Ramanathan', identifier: 'dr.ramanathan@apexhealth.org', password: 'Pharmacy@123' },
-      { label: 'Apex Central Clinical Dispensary — Rohan M.', identifier: 'rohan.m@apexhealth.org', password: 'Pharmacy@123' },
-      { label: 'GlobalHealth Express Central Hub', identifier: 'mumbai.depot@globalhealth.org', password: 'Pharmacy@123' },
-      { label: 'Apollo Care Clinical Pharmacy', identifier: 'bangalore.pharmacy@apollocare.org', password: 'Pharmacy@123' },
-      { label: 'MedPlus Community Clinical Dispensary', identifier: 'hyderabad.hub@medpluscommunity.org', password: 'Pharmacy@123' },
-    ],
-    news: [
-      { label: 'Dr. Evelyn Carter — super administrator', identifier: 'admin@globalhealth.org', password: 'Password123!' },
-      { label: 'Marcus Sterling — news administrator', identifier: 'newsadmin@globalhealth.org', password: 'Password123!' },
-      { label: 'Sarah Chen — editor', identifier: 'editor@globalhealth.org', password: 'Password123!' },
-      { label: 'Dr. James Thorne — reviewer', identifier: 'reviewer@globalhealth.org', password: 'Password123!' },
-      { label: 'Elena Rostova — publisher', identifier: 'publisher@globalhealth.org', password: 'Password123!' },
-      { label: 'David Kim — author', identifier: 'author@globalhealth.org', password: 'Password123!' },
-    ],
-  } : null;
-
   for (const warning of config.warnings) {
     logger.warn('startup configuration warning', { warning });
   }
@@ -130,9 +88,9 @@ async function startServer() {
     if (req.method !== 'POST' || !isPlatformRole(role) || !Object.hasOwn(AUTH_REALMS[role], action)) {
       return res.status(400).json({ success: false, code: 'INVALID_AUTH_FLOW', error: 'Unknown authentication flow.' });
     }
-    // Dev preview traffic and acceptance suites share one sandbox IP; keep
-    // the demo account picker usable across roles while retaining per-account
-    // brute-force limits in each realm. Production keeps the stricter cap.
+    // Dev preview traffic and acceptance suites share one IP; retain
+    // per-account brute-force limits while allowing local verification tests.
+    // Production keeps the stricter cap.
     const maxUnifiedRequests = config.nodeEnv === 'development' ? 200 : 40;
     const rate = hitRateLimit('unified-auth', String(req.ip || 'anonymous'), maxUnifiedRequests, 5 * 60 * 1000);
     if (!rate.allowed) {
@@ -616,10 +574,6 @@ async function startServer() {
       acceptedAt: string;
       method: 'signup_checkbox' | 'login_acknowledgement' | 'settings_reacceptance';
     }[];
-    /** Identifies a synthetic sandbox account; never conveys a privileged role. */
-    isDemoAccount?: boolean;
-    /** Ephemeral visitor-owned demo accounts are not written to persistent stores. */
-    isEphemeralDemo?: boolean;
     createdAt: string;
     lastLoginAt: string;
   }
@@ -635,7 +589,6 @@ async function startServer() {
     location: string;
     createdAt: string;
     lastActive: string;
-    isDemoSession?: boolean;
     expiresAt?: number;
   }
 
@@ -704,197 +657,19 @@ async function startServer() {
     return { allowed: true, retryInMs: 0 };
   };
 
-  const DEMO_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
-
-  // ---- Self-healing demo session tokens ---------------------------------
-  // Demo tokens are HMAC-signed and embed the synthetic user id, so a server
-  // restart, redeploy or cold start can transparently re-create the sandbox
-  // for a visitor that still holds a valid token instead of throwing them
-  // back to "Your session has expired". The token only ever unlocks synthetic
-  // data. Logged-out/expired demo users are remembered so their tokens stay
-  // dead. Secret: DEMO_SESSION_SECRET > persisted runtime file > per-process.
-  const DEMO_SECRET_FILE = path.join(RUNTIME_DIR, 'demo-session.secret');
-  const demoSessionSecret: string = (() => {
-    if (config.demoSessionSecret) return config.demoSessionSecret;
-    try {
-      const existing = fs.existsSync(DEMO_SECRET_FILE) ? fs.readFileSync(DEMO_SECRET_FILE, 'utf8').trim() : '';
-      if (existing.length >= 32) return existing;
-    } catch { /* fall through to generate */ }
-    const generated = randomBytes(32).toString('hex');
-    try {
-      fs.mkdirSync(RUNTIME_DIR, { recursive: true });
-      fs.writeFileSync(DEMO_SECRET_FILE, generated, { encoding: 'utf8', mode: 0o600 });
-    } catch (err) {
-      logger.warn('demo session secret could not be persisted; demo sessions will not survive restarts server-side', {
-        reason: (err as Error)?.message
-      });
-    }
-    return generated;
-  })();
-  // Isolated sandboxes for the Doctor, Hospital, Pharmacy and News Management
-  // portals. Memory only: never persisted, never wired to a real realm store.
-  const demoPortals = new DemoPortalStore(createHash('sha256').update(`demo-portal-store:${demoSessionSecret}`).digest('hex'));
-  const DEMO_USER_PREFIX = 'usr-demo-';
-  const ENDED_DEMO_USER_IDS = new Set<string>();
-  const markDemoUserEnded = (userId: string) => {
-    if (!userId.startsWith(DEMO_USER_PREFIX)) return;
-    ENDED_DEMO_USER_IDS.add(userId);
-    if (ENDED_DEMO_USER_IDS.size > 20000) {
-      const oldest = ENDED_DEMO_USER_IDS.values().next().value;
-      if (oldest) ENDED_DEMO_USER_IDS.delete(oldest);
-    }
-  };
-  const demoSignature = (userId: string) =>
-    createHmac('sha256', demoSessionSecret).update(`demo-session:${userId}`).digest('hex').slice(0, 32);
-  const signDemoToken = (userId: string) => `gh-demo-${userId.slice(DEMO_USER_PREFIX.length)}-${demoSignature(userId)}`;
-  /** Returns the demo user id for a correctly signed demo token, else null. */
-  const parseDemoToken = (token: string): string | null => {
-    const match = /^gh-demo-([0-9a-f]{32})-([0-9a-f]{32})$/.exec(token);
-    if (!match) return null;
-    const userId = `${DEMO_USER_PREFIX}${match[1]}`;
-    const expected = Buffer.from(demoSignature(userId));
-    const given = Buffer.from(match[2]);
-    return expected.length === given.length && timingSafeEqual(expected, given) ? userId : null;
-  };
-  const LOCAL_DEMO_USER_ID = 'usr-sarah-jenkins';
-  const LOCAL_SECOND_DEMO_USER_ID = 'usr-alex-turner';
-  const isReservedDemoUserId = (id: string) =>
-    id === LOCAL_DEMO_USER_ID || id === LOCAL_SECOND_DEMO_USER_ID || id.startsWith('usr-demo-');
-
-  function createSarahDemoUser(): ServerPublicUser {
-    return {
-      id: LOCAL_DEMO_USER_ID,
-      username: 'sarah_wellness',
-      fullName: 'Sarah Jenkins',
-      firstName: 'Sarah',
-      lastName: 'Jenkins',
-      email: 'sarah.jenkins@example.com',
-      phoneNumber: '+1 (555) 234-5678',
-      passwordHash: hashSecret(LOCAL_DEMO_USER_ID, 'Password123!'),
-      role: 'VERIFIED_USER',
-      accountStatus: 'ACTIVE',
-      isEmailVerified: true,
-      isPhoneVerified: true,
-      country: 'United States',
-      preferredLanguage: 'English',
-      twoFactor: { enabled: false, backupCodes: ['8392-1928', '4729-5829', '1948-2849', '9582-1049'] },
-      dietaryPreferences: ['Mediterranean', 'Heart-Healthy', 'Anti-Inflammatory'],
-      healthGoals: ['Balance Blood Glucose', 'Weight & Metabolic Wellness'],
-      marketingConsent: true,
-      isDemoAccount: true,
-      createdAt: '2026-01-15T10:30:00.000Z',
-      lastLoginAt: new Date().toISOString()
-    };
-  }
-
-  function createAlexDemoUser(): ServerPublicUser {
-    return {
-      id: LOCAL_SECOND_DEMO_USER_ID,
-      username: 'alex_turner',
-      fullName: 'Alex Turner',
-      firstName: 'Alex',
-      lastName: 'Turner',
-      email: 'alex.turner@example.com',
-      phoneNumber: '+1 (555) 876-5432',
-      passwordHash: hashSecret(LOCAL_SECOND_DEMO_USER_ID, 'Password123!'),
-      role: 'PUBLIC_USER',
-      accountStatus: 'ACTIVE',
-      isEmailVerified: true,
-      isPhoneVerified: false,
-      country: 'United Kingdom',
-      preferredLanguage: 'English',
-      twoFactor: { enabled: false },
-      dietaryPreferences: ['Gluten-Free'],
-      healthGoals: ['General Longevity'],
-      marketingConsent: false,
-      isDemoAccount: true,
-      createdAt: '2026-02-10T14:20:00.000Z',
-      lastLoginAt: new Date().toISOString()
-    };
-  }
-
-  function createEphemeralDemoUser(existingId?: string): ServerPublicUser {
-    const id = existingId || `${DEMO_USER_PREFIX}${randomBytes(16).toString('hex')}`;
-    const handle = id.slice(-8);
-    return {
-      id,
-      username: `demo_${handle}`,
-      fullName: 'Jordan Sample',
-      firstName: 'Jordan',
-      lastName: 'Sample',
-      email: `${id}@demo.invalid`,
-      passwordHash: `disabled-demo-password$${randomBytes(32).toString('hex')}`,
-      role: 'VERIFIED_USER',
-      accountStatus: 'ACTIVE',
-      isEmailVerified: true,
-      isPhoneVerified: false,
-      country: 'India',
-      preferredLanguage: 'English',
-      twoFactor: { enabled: false },
-      dietaryPreferences: ['Balanced'],
-      healthGoals: ['General Wellness'],
-      marketingConsent: false,
-      isDemoAccount: true,
-      isEphemeralDemo: true,
-      createdAt: new Date().toISOString(),
-      lastLoginAt: new Date().toISOString()
-    };
-  }
-
-  // A public demo is an isolated, synthetic User Portal session, never a
-  // shared password. Development also retains credential-backed fixtures for
-  // professional role acceptance tests.
+  // Accounts are registered/provisioned explicitly, never seeded at startup.
   const PUBLIC_USERS: Map<string, ServerPublicUser> = new Map();
   const ACTIVE_SESSIONS: Map<string, ServerSession> = new Map();
-  if (config.nodeEnv === 'development' && config.publicDemoEnabled) {
-    PUBLIC_USERS.set(LOCAL_DEMO_USER_ID, createSarahDemoUser());
-    PUBLIC_USERS.set(LOCAL_SECOND_DEMO_USER_ID, createAlexDemoUser());
-    ACTIVE_SESSIONS.set('sess-current-demo', {
-      sessionId: 'sess-current-demo',
-      userId: LOCAL_DEMO_USER_ID,
-      deviceName: 'MacBook Pro (macOS 15)',
-      deviceType: 'Desktop',
-      browser: 'Chrome 128.0',
-      os: 'macOS Sonoma',
-      ipAddress: '198.51.100.42',
-      location: 'New York, United States',
-      createdAt: new Date(Date.now() - 3600000).toISOString(),
-      lastActive: new Date().toISOString()
-    });
-    ACTIVE_SESSIONS.set('sess-mobile-demo', {
-      sessionId: 'sess-mobile-demo',
-      userId: LOCAL_DEMO_USER_ID,
-      deviceName: 'iPhone 16 Pro (iOS 18)',
-      deviceType: 'Mobile',
-      browser: 'Mobile Safari 18.1',
-      os: 'iOS 18',
-      ipAddress: '198.51.100.88',
-      location: 'New York, United States',
-      createdAt: new Date(Date.now() - 86400000).toISOString(),
-      lastActive: new Date(Date.now() - 7200000).toISOString()
-    });
-  }
-
-  const isDemoAccountId = (userId: string) =>
-    isReservedDemoUserId(userId) || PUBLIC_USERS.get(userId)?.isDemoAccount === true;
-
-  const AUDIT_LOGS: ServerAuditLog[] = [
-    {
-      id: 'aud-1',
-      userId: 'usr-sarah-jenkins',
-      event: 'USER_LOGIN_SUCCESS',
-      timestamp: new Date().toISOString(),
-      ipAddress: '198.51.100.42',
-      status: 'success',
-      details: 'Secure login via password from New York, US'
-    }
-  ];
+  const removedDemoUserIds = new Set<string>();
+  const isRemovedDemoUserId = (userId: unknown) =>
+    isLegacyDemoUserId(userId) || (typeof userId === 'string' && removedDemoUserIds.has(userId));
+  const AUDIT_LOGS: ServerAuditLog[] = [];
 
   // Helper function to sanitize user for frontend. The TOTP secret and backup
   // codes are NEVER exposed on normal auth/user responses — they are returned
   // only once during explicit 2FA setup (and never again).
   const sanitizeUser = (user: ServerPublicUser) => {
-    const { passwordHash, verificationCode, resetToken, twoFactor, isEphemeralDemo, ...safeUser } = user;
+    const { passwordHash, verificationCode, resetToken, twoFactor, ...safeUser } = user;
     return {
       ...safeUser,
       twoFactor: {
@@ -1762,26 +1537,14 @@ async function startServer() {
   app.post('/api/auth/logout', (req, res) => {
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
     if (token) {
-      const session = ACTIVE_SESSIONS.get(token);
-      const signedDemoUserId = parseDemoToken(token);
-      if (demoPortals.parseToken(token)) {
-        // Professional demo sandbox: discard its data and keep the token dead.
-        demoPortals.end(token);
-      } else if (session?.isDemoSession) {
-        cleanupEphemeralDemoAccount(session.userId);
-      } else if (signedDemoUserId) {
-        // Valid demo token whose sandbox was lost to a restart: still end it.
-        cleanupEphemeralDemoAccount(signedDemoUserId);
-      } else {
-        ACTIVE_SESSIONS.delete(token);
-        DOCTOR_SESSIONS.delete(token);
-        HOSPITAL_SESSIONS.delete(token);
-        PHARMACY_PARTNER_SESSIONS.delete(token);
-        NEWS_ADMIN_SESSIONS.delete(token);
-        AUTHORITY_SESSIONS.delete(token);
-        persistRuntimeAccounts();
-        persistDomainState();
-      }
+      ACTIVE_SESSIONS.delete(token);
+      DOCTOR_SESSIONS.delete(token);
+      HOSPITAL_SESSIONS.delete(token);
+      PHARMACY_PARTNER_SESSIONS.delete(token);
+      NEWS_ADMIN_SESSIONS.delete(token);
+      AUTHORITY_SESSIONS.delete(token);
+      persistRuntimeAccounts();
+      persistDomainState();
     }
     return res.json({
       success: true,
@@ -1829,72 +1592,24 @@ async function startServer() {
     }
   > = new Map();
 
-  // Assigned after all domain stores are declared; auth can safely refer to
-  // it because requests only run once server initialization has completed.
-  let cleanupEphemeralDemoAccount = (_userId: string) => {};
-  let persistDomainStateNow = () => {};
-
-  function seedPrivateData(userId: string, fullName: string) {
+  function initializePrivateData(userId: string, fullName: string) {
     if (PRIVATE_DATA.has(userId)) return PRIVATE_DATA.get(userId)!;
-    const now = new Date().toISOString();
-    const data = {
+    const data: NonNullable<ReturnType<typeof PRIVATE_DATA.get>> = {
       ehr: {
         ownerId: userId,
         patientName: fullName,
         mrn: `MRN-${userId.replace(/[^a-z0-9]/gi, '').slice(-6).toUpperCase()}`,
-        bloodGroup: 'O+',
-        allergies: ['Penicillin'],
+        bloodGroup: '',
+        allergies: [],
         chronicConditions: [],
-        immunizations: [
-          { name: 'COVID-19 (Booster)', date: '2025-11-02' },
-          { name: 'Influenza', date: '2025-09-14' }
-        ],
-        updatedAt: now
+        immunizations: [],
+        updatedAt: new Date().toISOString()
       },
-      healthRecords: [
-        {
-          id: `rec-${userId.slice(-4)}-1`,
-          ownerId: userId,
-          type: 'Lab Report',
-          title: 'Complete Blood Count (CBC)',
-          date: '2026-07-18',
-          provider: 'GlobalHealth Diagnostics',
-          summary: 'All values within normal reference range.'
-        }
-      ],
-      appointments: [
-        {
-          id: `apt-${userId.slice(-4)}-1`,
-          ownerId: userId,
-          doctorName: 'Dr. Anita Rao, MD',
-          specialty: 'Internal Medicine',
-          facility: 'City Care Multispecialty Hospital',
-          date: new Date(Date.now() + 3 * 86400000).toISOString().slice(0, 10),
-          time: '10:30',
-          status: 'upcoming',
-          reason: 'Annual health check-up'
-        }
-      ],
+      healthRecords: [],
+      appointments: [],
       orders: [],
-      savedLibrary: {
-        medicines: [],
-        doctors: [],
-        hospitals: [],
-        articles: [],
-        guides: [],
-        posts: []
-      },
-      notifications: [
-        {
-          id: `ntf-${userId.slice(-4)}-1`,
-          ownerId: userId,
-          type: 'appointment',
-          title: 'Upcoming appointment',
-          body: 'Your internal medicine visit is in 3 days.',
-          read: false,
-          createdAt: now
-        }
-      ],
+      savedLibrary: { medicines: [], doctors: [], hospitals: [], articles: [], guides: [], posts: [] },
+      notifications: [],
       community: { joinedGroups: [], followedUsers: [], posts: [], likes: [] },
       messages: []
     };
@@ -1902,86 +1617,32 @@ async function startServer() {
     return data;
   }
 
-  // ----------------------------------------------------------------------
-  // Durable user account data. Public demo sessions are deliberately excluded:
-  // every visitor receives a unique in-memory identity and their sandbox data
-  // is discarded on logout, expiry or process restart.
-  // ----------------------------------------------------------------------
+  // Durable account data. Migrate legacy demo identities and their sessions
+  // before accepting requests, including older files without explicit flags.
   const RUNTIME_ACCOUNT_STORE = path.join(RUNTIME_DIR, 'account-store.json');
   const persistRuntimeAccounts = () => {
     writeSecureJsonFile(RUNTIME_ACCOUNT_STORE, {
       savedAt: new Date().toISOString(),
-      users: [...PUBLIC_USERS.values()].filter((user) => !user.isDemoAccount),
-      sessions: [...ACTIVE_SESSIONS.values()].filter((session) => !isDemoAccountId(session.userId)),
-      privateData: [...PRIVATE_DATA.entries()]
-        .filter(([userId]) => !isDemoAccountId(userId))
-        .map(([userId, data]) => ({ userId, data }))
+      users: [...PUBLIC_USERS.values()],
+      ...(removedDemoUserIds.size ? { removedDemoUserIds: [...removedDemoUserIds] } : {}),
+      sessions: [...ACTIVE_SESSIONS.values()],
+      privateData: [...PRIVATE_DATA.entries()].map(([userId, data]) => ({ userId, data }))
     });
   };
-  try {
-    const persistedAccountStore = readJsonFile<{
-      users?: ServerPublicUser[];
-      sessions?: ServerSession[];
-      privateData?: { userId: string; data: any }[];
-    }>(RUNTIME_ACCOUNT_STORE, {});
-    const persistedDemoUserIds = new Set(
-      (Array.isArray(persistedAccountStore.users) ? persistedAccountStore.users : [])
-        .filter((user) => user?.isDemoAccount || user?.isEphemeralDemo)
-        .map((user) => user.id)
-    );
-    if (Array.isArray(persistedAccountStore.users) && persistedAccountStore.users.length > 0) {
-      PUBLIC_USERS.clear();
-      for (const user of persistedAccountStore.users) {
-        if (
-          user &&
-          typeof user.id === 'string' &&
-          typeof user.email === 'string' &&
-          !user.isDemoAccount &&
-          !user.isEphemeralDemo &&
-          !isReservedDemoUserId(user.id)
-        ) {
-          PUBLIC_USERS.set(user.id, user);
-        }
-      }
+  {
+    const migration = removeDemoUserAccounts(readJsonFile<Record<string, any>>(RUNTIME_ACCOUNT_STORE, {}));
+    migration.removedUserIds.forEach(id => removedDemoUserIds.add(id));
+    const persisted = migration.store;
+    for (const user of Array.isArray(persisted.users) ? persisted.users : []) {
+      if (user && typeof user.id === 'string' && typeof user.email === 'string') PUBLIC_USERS.set(user.id, user);
     }
-    if (Array.isArray(persistedAccountStore.sessions) && persistedAccountStore.sessions.length > 0) {
-      ACTIVE_SESSIONS.clear();
-      for (const session of persistedAccountStore.sessions) {
-        if (
-          session &&
-          typeof session.sessionId === 'string' &&
-          typeof session.userId === 'string' &&
-          !session.isDemoSession &&
-          !persistedDemoUserIds.has(session.userId) &&
-          !isReservedDemoUserId(session.userId)
-        ) {
-          ACTIVE_SESSIONS.set(session.sessionId, session);
-        }
-      }
+    for (const session of Array.isArray(persisted.sessions) ? persisted.sessions : []) {
+      if (session && typeof session.sessionId === 'string' && typeof session.userId === 'string') ACTIVE_SESSIONS.set(session.sessionId, session);
     }
-    if (Array.isArray(persistedAccountStore.privateData) && persistedAccountStore.privateData.length > 0) {
-      PRIVATE_DATA.clear();
-      for (const entry of persistedAccountStore.privateData) {
-        if (
-          entry &&
-          typeof entry.userId === 'string' &&
-          entry.data &&
-          typeof entry.data === 'object' &&
-          !persistedDemoUserIds.has(entry.userId) &&
-          !isReservedDemoUserId(entry.userId)
-        ) {
-          PRIVATE_DATA.set(entry.userId, entry.data);
-        }
-      }
+    for (const entry of Array.isArray(persisted.privateData) ? persisted.privateData : []) {
+      if (entry && typeof entry.userId === 'string' && entry.data && typeof entry.data === 'object') PRIVATE_DATA.set(entry.userId, entry.data);
     }
-  } catch {
-    /* load failure already logged */
-  }
-  // Keep local fixture credentials stable even if an older runtime account
-  // file contains stale demo changes. These reserved users are synthetic.
-  if (config.nodeEnv === 'development' && config.publicDemoEnabled) {
-    PUBLIC_USERS.set(LOCAL_DEMO_USER_ID, createSarahDemoUser());
-    PUBLIC_USERS.set(LOCAL_SECOND_DEMO_USER_ID, createAlexDemoUser());
+    if (migration.changed) writeSecureJsonFile(RUNTIME_ACCOUNT_STORE, { ...persisted, savedAt: new Date().toISOString() });
   }
   setInterval(() => persistRuntimeAccounts(), 5000).unref();
 
@@ -1990,19 +1651,9 @@ async function startServer() {
   function authenticate(req: any): ServerPublicUser | null {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-    if (!token) return null;
-    let session = ACTIVE_SESSIONS.get(token);
-    if (!session) {
-      session = restoreDemoSession(token, req) || undefined;
-      if (!session) return null;
-    }
-
-    // Isolated demo sessions have a short sliding TTL and are fully discarded
-    // when they expire. Ordinary account expiry remains unchanged.
-    if (session.isDemoSession && (!session.expiresAt || session.expiresAt <= Date.now())) {
-      cleanupEphemeralDemoAccount(session.userId);
-      return null;
-    }
+    if (!token || isLegacyDemoSessionToken(token)) return null;
+    const session = ACTIVE_SESSIONS.get(token);
+    if (!session) return null;
 
     // Sliding expiry: invalidate after prolonged inactivity.
     const lastActive = new Date(session.lastActive).getTime();
@@ -2017,7 +1668,6 @@ async function startServer() {
 
     // Slide the window forward on authenticated activity.
     session.lastActive = new Date().toISOString();
-    if (session.isDemoSession) session.expiresAt = Date.now() + DEMO_SESSION_TTL_MS;
     ACTIVE_SESSIONS.set(token, session);
     return user;
   }
@@ -2068,12 +1718,14 @@ async function startServer() {
     const persisted = readJsonFile<
       { token: string; userId: string; granteeName: string; granteeType: string; scopes: string[]; expiresAt: number; createdAt: number; revokedAt?: number }[]
     >(EHR_CONSENT_SHARE_DIR, []);
-    for (const share of persisted) {
+    const retainedShares = persisted.filter(share => !isRemovedDemoUserId(share?.userId));
+    if (retainedShares.length !== persisted.length) writeJsonFile(EHR_CONSENT_SHARE_DIR, retainedShares);
+    for (const share of retainedShares) {
       if (
         share &&
         typeof share.token === 'string' &&
         typeof share.userId === 'string' &&
-        !isDemoAccountId(share.userId)
+        !isRemovedDemoUserId(share.userId)
       ) {
         EHR_CONSENT_SHARES.set(share.token, share);
       }
@@ -2084,7 +1736,7 @@ async function startServer() {
   const persistEhrConsentShares = () =>
     writeJsonFile(
       EHR_CONSENT_SHARE_DIR,
-      [...EHR_CONSENT_SHARES.values()].filter((share) => !isDemoAccountId(share.userId))
+      [...EHR_CONSENT_SHARES.values()].filter((share) => !isRemovedDemoUserId(share.userId))
     );
 
   // GET /api/auth/me — validate the current session and return the user.
@@ -2098,135 +1750,6 @@ async function startServer() {
       });
     }
     return res.json({ success: true, user: identity.user, portalRole: identity.role, destination: ROLE_DESTINATIONS[identity.role] });
-  });
-
-  // Credentials for legacy role fixtures are returned only by a development
-  // server. Public runtimes expose only the passwordless sandbox availability.
-  app.get('/api/auth/demo-accounts', (_req, res) => {
-    res.setHeader('Cache-Control', 'no-store, private');
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-    if (!config.publicDemoEnabled) {
-      return res.json({ success: true, demoSessionAvailable: false, accounts: {} });
-    }
-    return res.json({
-      success: true,
-      demoSessionAvailable: true,
-      demoRoles: ['user', 'doctor', 'hospital', 'pharmacy', 'news'],
-      accounts: DEVELOPMENT_DEMO_ACCOUNTS || {}
-    });
-  });
-
-  // Builds the in-memory sandbox (user, session and synthetic records) for a
-  // demo visitor. Used for new demo logins and for restoring after a restart.
-  function provisionDemoSandbox(user: ServerPublicUser, sessionId: string, userAgent: string): ServerSession {
-    const now = new Date().toISOString();
-    const session: ServerSession = {
-      sessionId,
-      userId: user.id,
-      deviceName: 'Private demo browser session',
-      deviceType: /Mobi|Android/i.test(userAgent) ? 'Mobile' : 'Desktop',
-      browser: 'Web browser',
-      os: 'Web',
-      ipAddress: 'Private demo session',
-      location: 'Synthetic sandbox',
-      createdAt: now,
-      lastActive: now,
-      isDemoSession: true,
-      expiresAt: Date.now() + DEMO_SESSION_TTL_MS
-    };
-    PUBLIC_USERS.set(user.id, user);
-    ACTIVE_SESSIONS.set(sessionId, session);
-
-    const alreadySeeded = PRIVATE_DATA.has(user.id);
-    const data = seedPrivateData(user.id, user.fullName);
-    if (alreadySeeded) return session;
-    data.healthRecords.push(
-      {
-        id: `rec-${user.id.slice(-4)}-2`,
-        ownerId: user.id,
-        type: 'Vitals',
-        title: 'Wellness check — resting vitals',
-        date: new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10),
-        provider: 'GlobalHealth Demo Clinic',
-        summary: 'Blood pressure 118/76 mmHg, resting heart rate 72 bpm. Synthetic sample data.'
-      },
-      {
-        id: `rec-${user.id.slice(-4)}-3`,
-        ownerId: user.id,
-        type: 'Immunization',
-        title: 'Seasonal influenza vaccination',
-        date: '2025-09-14',
-        provider: 'GlobalHealth Demo Clinic',
-        summary: 'Synthetic vaccination history item for exploring the portal.'
-      }
-    );
-    seedConsentDemoForPatient(user.id, user.id.slice(-8).toUpperCase());
-    return session;
-  }
-
-  // Re-creates a demo sandbox for a validly signed token whose in-memory state
-  // vanished (restart, redeploy, cold start). Ended/expired demos stay ended.
-  function restoreDemoSession(token: string, req: any): ServerSession | null {
-    if (!config.publicDemoEnabled) return null;
-    const userId = parseDemoToken(token);
-    if (!userId || ENDED_DEMO_USER_IDS.has(userId)) return null;
-    const existing = PUBLIC_USERS.get(userId);
-    if (existing && !existing.isEphemeralDemo) return null;
-    const user = existing || createEphemeralDemoUser(userId);
-    return provisionDemoSandbox(user, token, String(req?.headers?.['user-agent'] || ''));
-  }
-
-  // Creates an isolated synthetic User Portal identity for this visitor. It
-  // issues no reusable credentials and writes none of its account/session or
-  // private domain data to persistent storage.
-  app.post('/api/auth/demo-login', (req, res) => {
-    if (!config.publicDemoEnabled) {
-      return res.status(404).json({ success: false, code: 'DEMO_DISABLED', error: 'The public demo is currently unavailable.' });
-    }
-    const requestedRole = req.body?.role === undefined || req.body?.role === '' ? 'user' : req.body.role;
-    if (requestedRole !== 'user' && !isDemoPortalRole(requestedRole)) {
-      return res.status(400).json({ success: false, code: 'INVALID_DEMO_ROLE', error: 'Unknown demo portal.' });
-    }
-    // Development servers share one preview IP across acceptance suites.
-    const maxDemoStarts = config.nodeEnv === 'development' ? 300 : 30;
-    const limit = hitRateLimit('public-demo-login', String(req.ip || 'unknown'), maxDemoStarts, 60 * 60 * 1000);
-    if (!limit.allowed) {
-      res.setHeader('Retry-After', String(Math.ceil(limit.retryInMs / 1000)));
-      return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many demo sessions were started. Please try again later.' });
-    }
-
-    // Professional portals: isolated sandbox, never a real realm account.
-    if (isDemoPortalRole(requestedRole)) {
-      const portalSession = demoPortals.start(requestedRole);
-      const identity = demoPortals.identity(portalSession);
-      res.setHeader('Cache-Control', 'no-store, private');
-      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-      return res.status(201).json({
-        success: true,
-        message: 'Your private synthetic demo is ready.',
-        role: requestedRole,
-        user: identity.user,
-        portalRole: requestedRole,
-        destination: ROLE_DESTINATIONS[requestedRole],
-        token: portalSession.token,
-        expiresAt: portalSession.expiresAt
-      });
-    }
-
-    const user = createEphemeralDemoUser();
-    const sessionId = signDemoToken(user.id);
-    const session = provisionDemoSandbox(user, sessionId, String(req.headers['user-agent'] || ''));
-
-    res.setHeader('Cache-Control', 'no-store, private');
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-    return res.status(201).json({
-      success: true,
-      message: 'Your private synthetic demo is ready.',
-      user: sanitizeUser(user),
-      session: { ...session, isCurrent: true },
-      token: sessionId,
-      expiresAt: session.expiresAt
-    });
   });
 
   // ---- Protected: create a server-scoped EHR access share token ----.
@@ -2383,7 +1906,7 @@ async function startServer() {
 
   app.get('/api/me/dashboard', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     return res.json({
       success: true,
       greeting: { firstName: user.firstName },
@@ -2406,28 +1929,28 @@ async function startServer() {
   // ---- Protected: EHR (strictly owner-only) ----
   app.get('/api/me/ehr', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     return res.json({ success: true, ehr: data.ehr });
   });
 
   // ---- Protected: Health records (owner-only) ----
   app.get('/api/me/health-records', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     return res.json({ success: true, records: data.healthRecords });
   });
 
   // ---- Protected: Appointments (owner-only) ----
   app.get('/api/me/appointments', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     return res.json({ success: true, appointments: data.appointments });
   });
 
   // Book an appointment — authentication AND ownership enforced.
   app.post('/api/me/appointments', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     const { doctorName, specialty, facility, date, time, reason } = req.body || {};
     if (!doctorName || !date || !time) {
       return res.status(400).json({ success: false, error: 'Please choose a doctor, date and time.' });
@@ -2450,13 +1973,13 @@ async function startServer() {
   // ---- Protected: Medicine orders (owner-only) ----
   app.get('/api/me/orders', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     return res.json({ success: true, orders: data.orders });
   });
 
   app.post('/api/me/orders', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     const { items, total } = req.body || {};
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ success: false, error: 'Your order is empty.' });
@@ -2476,13 +1999,13 @@ async function startServer() {
   // ---- Protected: Saved Library (owner-only) ----
   app.get('/api/me/saved-library', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     return res.json({ success: true, savedLibrary: data.savedLibrary });
   });
 
   app.post('/api/me/saved-library', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     const { category, itemId, action } = req.body || {};
     const validCategories = [
       'medicines',
@@ -2508,20 +2031,20 @@ async function startServer() {
   // ---- Protected: Notifications (owner-only, personalized) ----
   app.get('/api/me/notifications', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     return res.json({ success: true, notifications: data.notifications });
   });
 
   // ---- Protected: Messages (owner-only) ----
   app.get('/api/me/messages', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     return res.json({ success: true, messages: data.messages });
   });
 
   app.post('/api/messages', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     const { toUserId, body } = req.body || {};
     if (!toUserId || !body) {
       return res.status(400).json({ success: false, error: 'Message recipient and content are required.' });
@@ -2541,7 +2064,7 @@ async function startServer() {
   // ---- Protected: Community participation (auth required to act) ----
   app.post('/api/community/posts', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     const { title, body, groupId } = req.body || {};
     if (!title || !body) {
       return res.status(400).json({ success: false, error: 'A post title and body are required.' });
@@ -2561,7 +2084,7 @@ async function startServer() {
 
   app.post('/api/community/groups/join', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     const { groupId } = req.body || {};
     if (!groupId) {
       return res.status(400).json({ success: false, error: 'A group is required.' });
@@ -2574,7 +2097,7 @@ async function startServer() {
 
   app.post('/api/community/follow', requireAuth, (req: any, res) => {
     const user: ServerPublicUser = req.authUser;
-    const data = seedPrivateData(user.id, user.fullName);
+    const data = initializePrivateData(user.id, user.fullName);
     const { targetUserId, action } = req.body || {};
     if (!targetUserId) {
       return res.status(400).json({ success: false, error: 'A user is required.' });
@@ -2784,104 +2307,7 @@ async function startServer() {
   const DECIDED_REQUESTS: Map<string, string> = new Map(); // requestId -> decidedAt
   const EMERGENCY_WINDOW_MS = 2 * 60 * 60 * 1000; // break-glass access: 2h
 
-  const DOCTORS: Map<string, ConsentDoctor> = new Map([
-    [
-      'doc-1',
-      {
-        doctorId: 'doc-1',
-        fullName: 'Dr. Anita Rao, MD',
-        organization: 'City Care Multispecialty Hospital',
-        specialty: 'Internal Medicine',
-        registrationNo: 'MCI-55821',
-        passwordHash: hashSecret('doc-1', 'Doctor123!'),
-        verificationStatus: 'VERIFIED',
-        status: 'ACTIVE'
-      }
-    ],
-    [
-      'doc-2',
-      {
-        doctorId: 'doc-2',
-        fullName: 'Dr. Vikram Mehta, MD',
-        organization: 'Apex Cardiology Institute',
-        specialty: 'Cardiology',
-        registrationNo: 'MCI-77410',
-        passwordHash: hashSecret('doc-2', 'Doctor123!'),
-        verificationStatus: 'VERIFIED',
-        status: 'ACTIVE'
-      }
-    ],
-    // Doctor Portal (MedAuth) workspace accounts. Passwords are hashed
-    // server-side ONLY — the client never validates credentials.
-    [
-      'doc-alexandra-chen',
-      {
-        doctorId: 'doc-alexandra-chen',
-        fullName: 'Dr. Alexandra Chen, MD',
-        organization: 'Johns Hopkins Hospital & Heart Institute',
-        specialty: 'Interventional Cardiology',
-        registrationNo: 'MB-AUTH-948271',
-        username: 'doc_alex_chen',
-        email: 'a.chen@medauth.org',
-        role: 'Department Head',
-        department: 'Cardiovascular Institute',
-        passwordHash: hashSecret('doc-alexandra-chen', 'chen123'),
-        verificationStatus: 'VERIFIED',
-        status: 'ACTIVE'
-      }
-    ],
-    [
-      'doc-robert-harrison',
-      {
-        doctorId: 'doc-robert-harrison',
-        fullName: 'Dr. Robert Harrison, MD, FACS',
-        organization: 'Hospital for Special Surgery (HSS), New York',
-        specialty: 'Orthopedic Surgery',
-        registrationNo: 'MB-HARR-11290',
-        username: 'doc_rob_harrison',
-        email: 'r.harrison@medauth.org',
-        role: 'Senior Doctor',
-        department: 'Orthopedic Trauma & Joint Reconstruction',
-        passwordHash: hashSecret('doc-robert-harrison', 'harr123'),
-        verificationStatus: 'VERIFIED',
-        status: 'ACTIVE'
-      }
-    ],
-    [
-      'doc-priya-sharma',
-      {
-        doctorId: 'doc-priya-sharma',
-        fullName: 'Dr. Priya Sharma, MBBS, MD, DM',
-        organization: 'Apollo Multispeciality Hospitals & Research Centre',
-        specialty: 'Endocrinology & Diabetology',
-        registrationNo: 'MB-SHAR-55104',
-        username: 'doc_priya_sharma',
-        email: 'p.sharma@medauth.org',
-        role: 'Consultant',
-        department: 'Endocrinology & Metabolic Center',
-        passwordHash: hashSecret('doc-priya-sharma', 'priya123'),
-        verificationStatus: 'VERIFIED',
-        status: 'ACTIVE'
-      }
-    ],
-    [
-      'doc-marcus-vance',
-      {
-        doctorId: 'doc-marcus-vance',
-        fullName: 'Dr. Marcus Vance, MD, PhD',
-        organization: 'Dana-Farber Cancer Institute & Harvard Medical',
-        specialty: 'Medical Oncology',
-        registrationNo: 'MB-VANC-72093',
-        username: 'doc_marcus_vance',
-        email: 'm.vance@medauth.org',
-        role: 'Department Head',
-        department: 'Molecular Oncology & Therapeutics',
-        passwordHash: hashSecret('doc-marcus-vance', 'vance123'),
-        verificationStatus: 'VERIFIED',
-        status: 'ACTIVE'
-      }
-    ]
-  ]);
+  const DOCTORS: Map<string, ConsentDoctor> = new Map();
 
   // Public onboarding applications are review records only. They never grant
   // a session or clinical access; an authorized organization must provision a
@@ -2959,7 +2385,7 @@ async function startServer() {
 
   // ---------------- NOTIFICATIONS ---------------------------------------
   const pushPatientNotification = (userId: string, n: { type: string; title: string; body: string; requestId?: string }) => {
-    const data = seedPrivateData(userId, 'Patient');
+    const data = initializePrivateData(userId, 'Patient');
     data.notifications.unshift({
       id: `ntf-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       ownerId: userId,
@@ -2973,16 +2399,6 @@ async function startServer() {
   };
 
   const pushDoctorNotification = (doctorId: string, n: { type: string; title: string; body: string; requestId?: string; patientName?: string; patientUserId?: string }) => {
-    const requestBelongsToDemo = Boolean(
-      n.requestId &&
-      [...CONSENT_REQUESTS.entries()].some(([patientId, requests]) =>
-        isDemoAccountId(patientId) && requests.some((request) => request.requestId === n.requestId)
-      )
-    );
-    // Demo actions are private to the visitor's sandbox; never write their
-    // activity into a real professional's shared notification feed.
-    if ((n.patientUserId && isDemoAccountId(n.patientUserId)) || requestBelongsToDemo) return;
-
     const { patientUserId: _patientUserId, ...safeNotification } = n;
     const list = DOCTOR_NOTIFICATIONS.get(doctorId) || [];
     list.unshift({
@@ -3059,104 +2475,6 @@ async function startServer() {
     kind === 'add' ? 'add' : kind === 'edit' ? 'update' : kind === 'remove' ? 'remove or archive' : 'access';
   const kindLabel = (kind?: string) =>
     kind === 'add' ? 'Add' : kind === 'edit' ? 'Edit' : kind === 'remove' ? 'Remove' : 'Access';
-
-  // ---------------- DEMO RELATIONSHIP & SEED RECORDS --------------------
-  // Each public demo identity gets its own synthetic EHR relationship and
-  // consent request so signed-in screens have meaningful sample content.
-  function seedConsentDemoForPatient(pid: string, suffix: string) {
-    if (!(EHR_RECORDS.get(pid) || []).length) {
-      const t = nowIso();
-      EHR_RECORDS.set(pid, [
-        {
-          recordId: `rec-demo-${suffix}-cbc`,
-          patientUserId: pid,
-          category: 'Laboratory Report',
-          title: 'Complete Blood Count (CBC)',
-          status: 'active',
-          createdAt: t,
-          versions: [{ versionId: `ver-demo-${suffix}-cbc-1`, versionNumber: 1, data: 'CBC panel — 18 Jul 2026. All values within normal reference range. Hemoglobin 13.9 g/dL, WBC 6.1, Platelets 244. Synthetic demo data.', createdBy: 'patient', createdAt: t }]
-        },
-        {
-          recordId: `rec-demo-${suffix}-metformin`,
-          patientUserId: pid,
-          category: 'Medication',
-          title: 'Metformin 500 mg — twice daily',
-          status: 'active',
-          createdAt: t,
-          versions: [{ versionId: `ver-demo-${suffix}-mtf-1`, versionNumber: 1, data: 'Synthetic demo medication record. Metformin 500 mg with food, twice daily, started 12 Jun 2026. This is sample information, not a prescription.', createdBy: 'patient', createdAt: t }]
-        },
-        {
-          recordId: `rec-demo-${suffix}-note`,
-          patientUserId: pid,
-          category: 'Clinical Note',
-          title: 'Annual check-up summary',
-          status: 'active',
-          createdAt: t,
-          versions: [{ versionId: `ver-demo-${suffix}-note-1`, versionNumber: 1, data: 'Synthetic demo note. Annual check-up 02 Jul 2026. BP 118/76, HR 72. Sample content only; not medical advice.', createdBy: 'patient', createdAt: t }]
-        }
-      ]);
-    }
-
-    if (!(DOCTOR_ACCESS.get(pid) || []).some((g) => g.doctorId === 'doc-1')) {
-      DOCTOR_ACCESS.set(pid, [
-        {
-          accessId: `acc-demo-${suffix}`,
-          patientUserId: pid,
-          doctorId: 'doc-1',
-          scope: ['profile', 'clinical', 'medications', 'allergies', 'labs', 'prescriptions', 'documents'],
-          canView: true,
-          isEmergency: false,
-          status: 'active',
-          grantedAt: new Date(Date.now() - 353 * 86400000).toISOString(),
-          expiresAt: new Date(Date.now() + 12 * 86400000).toISOString(),
-          revokedAt: null,
-          lastViewedAt: new Date(Date.now() - 3 * 3600000).toISOString()
-        }
-      ]);
-    }
-
-    if (!(CONSENT_REQUESTS.get(pid) || []).length) {
-      const req: ConsentRequest = {
-        requestId: `GH-REQ-DEMO${suffix}`,
-        patientUserId: pid,
-        doctorId: 'doc-1',
-        kind: 'add',
-        recordCategory: 'Laboratory Report',
-        title: 'Add recent HbA1c laboratory results',
-        summary: 'Add the HbA1c and fasting blood glucose results from a recent synthetic consultation.',
-        reason: 'This synthetic request demonstrates how patient consent works before a record is changed.',
-        explanation: 'Sample request only. No real clinic visit or laboratory result is associated with this demo.',
-        proposedValue: 'Synthetic sample: HbA1c 6.4%, fasting glucose 112 mg/dL. This is not a real result and must not be used for care.',
-        clarifications: [],
-        status: 'pending',
-        priority: 'normal',
-        createdAt: new Date(Date.now() - 2 * 3600000).toISOString(),
-        expiresAt: new Date(Date.now() + 7 * 86400000).toISOString()
-      };
-      CONSENT_REQUESTS.set(pid, [req]);
-      audit(null, {
-        patientUserId: pid,
-        actorId: 'doc-1',
-        actorRole: 'DOCTOR',
-        eventType: 'EHR_MODIFICATION_REQUESTED',
-        resourceType: 'ConsentRequest',
-        resourceId: req.requestId,
-        requestId: req.requestId,
-        recordCategory: req.recordCategory,
-        newState: 'pending:add',
-        accessPermission: 'REQUEST_EHR_ADD (consent required)',
-        result: 'pending',
-        detail: req.reason
-      });
-    }
-  }
-
-  // Keep Sarah's historical local fixture relationship, but never attach it to
-  // a deployed public account. New public visitors are seeded on demand above.
-  if (config.nodeEnv === 'development' && config.publicDemoEnabled) {
-    const sarah = [...PUBLIC_USERS.values()].find((u) => u.email === 'sarah.jenkins@example.com');
-    if (sarah) seedConsentDemoForPatient(sarah.id, 'LOCAL');
-  }
 
   // ---------------- DOCTOR AUTH -----------------------------------------
   const DOCTOR_LOGIN_ATTEMPTS: Map<string, AttemptWindow> = new Map();
@@ -3427,7 +2745,7 @@ async function startServer() {
     };
     DOCTOR_RESET_TOKENS.set(record.token, record);
     audit(req, { actorId: doctor.doctorId, actorRole: 'DOCTOR', eventType: 'DOCTOR_RESET_REQUESTED', result: 'success', detail: `Password reset token issued for @${doctor.username}` });
-    // Demo environment: delivery is simulated, so the token is returned.
+    // Development environment: delivery is simulated, so the token is returned.
     return res.json({ ...generic, ...(IS_PRODUCTION ? {} : { demoResetToken: record.token }) });
   });
 
@@ -3441,7 +2759,7 @@ async function startServer() {
       return res.status(400).json({ success: false, code: 'WEAK_PASSWORD', error: 'The new password must be at least 8 characters long.' });
     }
     if (String(req.body?.code || '') !== '') {
-      // Reserved for future email-code verification; tokens are the demo flow.
+      // Reserved for future email-code verification; recovery currently uses tokens.
     }
     record.used = true;
     DOCTOR_RESET_TOKENS.delete(record.token);
@@ -6195,7 +5513,7 @@ Request ID: ${requestId}`,
   //  - Individual accounts only (no shared logins); every action is
   //    attributable to a specific named account.
   //  - Suspended accounts are denied at login with a safe, generic message.
-  //  - MFA (simulated delivery in this demo environment) is required for
+  //  - MFA (simulated delivery in development) is required for
   //    administrators and for authority accounts holding publishing rights.
   // ======================================================================
 
@@ -6233,18 +5551,6 @@ Request ID: ${requestId}`,
       'news.view', 'news.create', 'news.edit', 'news.manage_media', 'news.manage_comments'
     ]
   };
-
-  // Individual administrator accounts — one account per person, each with
-  // their own credentials and permission set. (No shared logins.)
-  const NEWS_ADMIN_SEED: NewsAdmin[] = [
-    { adminId: 'news-admin-1', name: 'Dr. Evelyn Carter', email: 'admin@globalhealth.org', passwordHash: hashSecret('news-admin-1', 'Password123!'), role: 'SUPER_ADMIN', title: 'Chief Medical Editor & Super Administrator', status: 'active', mfaEnabled: true, permissions: NEWS_ADMIN_ROLE_PERMISSIONS.SUPER_ADMIN },
-    { adminId: 'news-admin-2', name: 'Marcus Sterling', email: 'newsadmin@globalhealth.org', passwordHash: hashSecret('news-admin-2', 'Password123!'), role: 'NEWS_ADMIN', title: 'Lead News Operations Manager', status: 'active', mfaEnabled: true, permissions: NEWS_ADMIN_ROLE_PERMISSIONS.NEWS_ADMIN },
-    { adminId: 'news-admin-3', name: 'Sarah Chen, MD', email: 'editor@globalhealth.org', passwordHash: hashSecret('news-admin-3', 'Password123!'), role: 'EDITOR', title: 'Senior Clinical Editor — Cardiology & Endocrinology', status: 'active', mfaEnabled: true, permissions: NEWS_ADMIN_ROLE_PERMISSIONS.EDITOR },
-    { adminId: 'news-admin-4', name: 'Dr. James Thorne', email: 'reviewer@globalhealth.org', passwordHash: hashSecret('news-admin-4', 'Password123!'), role: 'REVIEWER', title: 'Independent Peer Reviewer & Oncology Specialist', status: 'active', mfaEnabled: true, permissions: NEWS_ADMIN_ROLE_PERMISSIONS.REVIEWER },
-    { adminId: 'news-admin-5', name: 'Elena Rostova', email: 'publisher@globalhealth.org', passwordHash: hashSecret('news-admin-5', 'Password123!'), role: 'PUBLISHER', title: 'Digital Publishing & Syndication Manager', status: 'active', mfaEnabled: true, permissions: NEWS_ADMIN_ROLE_PERMISSIONS.PUBLISHER },
-    { adminId: 'news-admin-6', name: 'David Kim, MSc', email: 'author@globalhealth.org', passwordHash: hashSecret('news-admin-6', 'Password123!'), role: 'AUTHOR', title: 'Staff Medical Science Writer', status: 'active', mfaEnabled: true, permissions: NEWS_ADMIN_ROLE_PERMISSIONS.AUTHOR },
-    { adminId: 'news-admin-7', name: 'Jordan Stone', email: 'j.stone@globalhealth.org', passwordHash: hashSecret('news-admin-7', 'Password123!'), role: 'NEWS_ADMIN', title: 'Former News Operations Lead', status: 'suspended', mfaEnabled: true, permissions: NEWS_ADMIN_ROLE_PERMISSIONS.NEWS_ADMIN }
-  ];
 
   const NEWS_MFA_CHALLENGES: Map<string, { accountType: 'admin' | 'authority'; accountId: string; code: string; expiresAt: number; attempts: number }> = new Map();
   const NEWS_RESET_TOKENS: Map<string, { code: string; accountType: 'admin' | 'authority'; accountId: string; email: string; expiresAt: number; attempts: number }> = new Map();
@@ -6497,7 +5803,7 @@ Request ID: ${requestId}`,
     const { email } = req.body || {};
     const emailKey = String(email || '').trim().toLowerCase();
     // The response shape is IDENTICAL whether or not the account exists —
-    // no account enumeration. In this demo environment the "email" is a
+    // no account enumeration. In development the "email" is a
     // simulated delivery channel.
     let token = secureToken("rst");
     let code = String(Math.floor(100000 + Math.random() * 900000));
@@ -6564,28 +5870,23 @@ Request ID: ${requestId}`,
     return res.json({ success: true, message: 'Your password has been reset and all previous sessions were signed out. You can now sign in.' });
   });
 
-  // Production does not load demo staff credentials. A bootstrap
-  // administrator may be provisioned explicitly through environment
-  // configuration; otherwise the News Management surface fails closed.
-  if (IS_PRODUCTION) {
-    NEWS_ADMIN_SEED.length = 0;
-    const bootstrapEmail = config.newsAdminBootstrap.email.toLowerCase();
-    const bootstrapPassword = config.newsAdminBootstrap.password;
-    if (bootstrapEmail && bootstrapPassword) {
-      NEWS_ADMIN_SEED.push({
-        adminId: 'news-admin-bootstrap',
-        name: config.newsAdminBootstrap.name,
-        email: bootstrapEmail,
-        passwordHash: hashSecret('news-admin-bootstrap', bootstrapPassword),
-        role: 'SUPER_ADMIN',
-        title: config.newsAdminBootstrap.name,
-        status: 'active',
-        mfaEnabled: true,
-        permissions: NEWS_ADMIN_ROLE_PERMISSIONS.SUPER_ADMIN
-      });
-    }
+  // Only explicitly configured administrators are bootstrapped in any
+  // environment. No shared/default News staff accounts are created.
+  const bootstrapEmail = config.newsAdminBootstrap.email.toLowerCase();
+  const bootstrapPassword = config.newsAdminBootstrap.password;
+  if (bootstrapEmail && bootstrapPassword) {
+    NEWS_ADMINS.set('news-admin-bootstrap', {
+      adminId: 'news-admin-bootstrap',
+      name: config.newsAdminBootstrap.name,
+      email: bootstrapEmail,
+      passwordHash: hashSecret('news-admin-bootstrap', bootstrapPassword),
+      role: 'SUPER_ADMIN',
+      title: config.newsAdminBootstrap.name,
+      status: 'active',
+      mfaEnabled: true,
+      permissions: NEWS_ADMIN_ROLE_PERMISSIONS.SUPER_ADMIN
+    });
   }
-  NEWS_ADMIN_SEED.forEach((a) => NEWS_ADMINS.set(a.adminId, a));
 
   // ----------------------------------------------------------------------
   // 5. Pharmacy Marketplace Inventory Engine (source of truth)
@@ -6630,30 +5931,7 @@ Request ID: ${requestId}`,
     status: 'PENDING_VERIFICATION' | 'VERIFIED' | 'SUSPENDED';
     createdAt: string;
   }
-  const PHARMACY_PARTNER_ACCOUNTS: Map<string, PharmacyPartnerAccount> = new Map(
-    (
-      [
-        ['dr.ramanathan@apexhealth.org', 'pharma-apex-01', 'Dr. S. K. Ramanathan', 'Apex Central Clinical Dispensary', 'PCI-DL-184920'],
-        ['rohan.m@apexhealth.org', 'pharma-apex-01', 'Rohan M.', 'Apex Central Clinical Dispensary', 'PCI-DL-184920'],
-        ['mumbai.depot@globalhealth.org', 'pharma-global-02', 'Ananya Deshmukh', 'GlobalHealth Express Central Hub', 'DL-MH-2023-55102'],
-        ['bangalore.pharmacy@apollocare.org', 'pharma-apollo-03', 'K. Venkatesh', 'Apollo Care Clinical Pharmacy', 'DL-KA-2022-31994'],
-        ['hyderabad.hub@medpluscommunity.org', 'pharma-medplus-04', 'P. Ravinder Reddy', 'MedPlus Community Clinical Dispensary', 'DL-TS-2023-40118']
-      ] as [string, string, string, string, string][]
-    ).map(([username, partnerId, contactName, pharmacyName, licenseNumber]) => [
-      username,
-      {
-        username,
-        partnerId,
-        pharmacyName,
-        contactName,
-        licenseNumber,
-        phone: '',
-        passwordHash: hashSecret(username, 'Pharmacy@123'),
-        status: 'VERIFIED' as const,
-        createdAt: nowIso()
-      }
-    ])
-  );
+  const PHARMACY_PARTNER_ACCOUNTS: Map<string, PharmacyPartnerAccount> = new Map();
 
   interface PharmacyPartnerSession {
     token: string;
@@ -6912,14 +6190,6 @@ Request ID: ${requestId}`,
   const MARKET_ORDERS: Map<string, any> = new Map();
 
   app.post('/api/pharmacy-marketplace/orders', (req, res) => {
-    const identity = platformIdentity(req);
-    if (identity?.user?.isDemoAccount) {
-      return res.status(403).json({
-        success: false,
-        code: 'DEMO_ACTION_BLOCKED',
-        error: 'Marketplace orders are disabled in the public demo. Your sandbox cannot reserve live pharmacy inventory.'
-      });
-    }
     try {
       const items = Array.isArray(req.body?.items) ? req.body.items : [];
       if (items.length === 0) {
@@ -7219,7 +6489,7 @@ Request ID: ${requestId}`,
     }
     const record = { token: secureToken("rst-ppp"), username: account.username, expiresAt: Date.now() + 60 * 60 * 1000, used: false };
     PHARMACY_PARTNER_RESET_TOKENS.set(record.token, record);
-    // Demo environment: simulated delivery returns the token.
+    // Development environment: simulated delivery returns the token.
     return res.json({ ...generic, ...(IS_PRODUCTION ? {} : { demoToken: record.token }) });
   });
 
@@ -7513,31 +6783,7 @@ Request ID: ${requestId}`,
     passwordHash: string;
     status: 'ACTIVE' | 'SUSPENDED';
   }
-  const HOSPITAL_ACCOUNTS: Map<string, HospitalPortalAccount> = new Map(
-    (
-      [
-        ['apex_admin', 'HSP-IN-DL-000125', 'Apex Institute of Medical Sciences & Research Center', 'admin@apexhealth.org'],
-        ['cleveland_ad_admin', 'hosp-1', 'Cleveland Clinic Abu Dhabi', 'info@clevelandclinicabudhabi.ae'],
-        ['sgh_admin', 'hosp-2', 'Singapore General Hospital (SGH)', 'appointments@sgh.com.sg'],
-        ['mayo_admin', 'hosp-4', 'Mayo Clinic Rochester', 'appointments@mayoclinic.org'],
-        ['stpeter_admin', 'HSP-UK-LON-000881', 'St. Peter Royal Hospital & Cardiovascular Institute', 'info@stpeterroyal.org.uk'],
-        ['metro_admin', 'HSP-US-MA-000412', 'Metropolitan Academic Medical Center & Trauma Network', 'contact@metromedical.org'],
-        ['aiims_admin', 'hosp-3', 'All India Institute of Medical Sciences (AIIMS)', 'appointments@aiims.edu'],
-        ['charite_admin', 'hosp-5', 'Charité - Universitätsmedizin Berlin', 'info@charite.de']
-      ] as [string, string, string, string][]
-    ).map(([username, hospitalId, hospitalName, email]) => [
-      username,
-      {
-        username,
-        hospitalId,
-        hospitalName,
-        email,
-        role: 'Hospital Administrator',
-        passwordHash: hashSecret(username, 'Password@123'),
-        status: 'ACTIVE' as const
-      }
-    ])
-  );
+  const HOSPITAL_ACCOUNTS: Map<string, HospitalPortalAccount> = new Map();
 
   interface HospitalPortalSession {
     token: string;
@@ -7977,13 +7223,7 @@ Request ID: ${requestId}`,
     const publicUser = authenticate(req);
     if (publicUser) return { role: 'user', user: { ...sanitizeUser(publicUser), portalRole: 'user' }, profile: sanitizeUser(publicUser) };
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-    // Passwordless professional demo sandbox. Valid only for the demo
-    // workspace API; it is not a session in any real doctor/hospital/pharmacy/
-    // news realm, so it can never reach real organization data.
-    if (config.publicDemoEnabled && demoPortals.looksLikeToken(token)) {
-      const demoSession = demoPortals.resolve(token);
-      return demoSession ? demoPortals.identity(demoSession) : null;
-    }
+    if (isLegacyDemoSessionToken(token)) return null;
     let role: PlatformRole;
     let id: string;
     let name: string;
@@ -8025,18 +7265,7 @@ Request ID: ${requestId}`,
     if (!isPlatformRole(req.params.role) || identity.role !== req.params.role) {
       return res.status(403).json({ success: false, code: 'ACCESS_DENIED', error: 'This account cannot access that workspace.' });
     }
-    // Isolated demo sandboxes return their own synthetic, session-private data.
-    if (config.publicDemoEnabled && demoPortals.looksLikeToken(bearerToken(req))) {
-      const demoSession = demoPortals.resolve(bearerToken(req));
-      if (!demoSession || demoSession.role !== identity.role) {
-        return res.status(401).json({ success: false, code: 'SESSION_EXPIRED', error: 'Your demo session has ended.' });
-      }
-      res.setHeader('Cache-Control', 'no-store, private');
-      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-      return res.json(demoPortals.workspace(demoSession));
-    }
-    // Account profile only, never the shared demo datasets used by the old
-    // portal prototypes. Domain APIs retain their own resource-level guards.
+    // Account profile only. Domain APIs retain resource-level guards.
     const { role, profile, user } = identity;
     const accountId = user.username;
     const records: Array<{ id: string; title: string; status: string }> = [];
@@ -8060,54 +7289,6 @@ Request ID: ${requestId}`,
       notifications = (AUTHORITY_NOTIFICATIONS.get(accountId) || []).map(n => ({ id: n.id, title: n.title, body: n.body }));
     }
     return res.json({ success: true, role, accountId: user.id, profile, records: records.slice(-200), activity: activity.slice(-50).reverse(), notifications: notifications.slice(0, 50) });
-  });
-
-  // ---- Professional demo sandbox actions ---------------------------------
-  // Add / update / remove synthetic items inside the visitor's own sandbox.
-  // Real accounts are rejected: these routes never reach any real data store.
-  function bearerToken(req: any): string {
-    return String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
-  }
-  function demoSandboxFor(req: any, res: any) {
-    res.setHeader('Cache-Control', 'no-store, private');
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-    if (!config.publicDemoEnabled || !isPlatformRole(req.params.role) || !isDemoPortalRole(req.params.role)) {
-      res.status(404).json({ success: false, code: 'DEMO_UNAVAILABLE', error: 'The demo sandbox is not available for this workspace.' });
-      return null;
-    }
-    const session = demoPortals.resolve(bearerToken(req));
-    if (!session) {
-      res.status(401).json({ success: false, code: 'AUTH_REQUIRED', error: 'Your demo session has ended. Please start a new demo.' });
-      return null;
-    }
-    if (session.role !== req.params.role) {
-      res.status(403).json({ success: false, code: 'ACCESS_DENIED', error: 'This account cannot access that workspace.' });
-      return null;
-    }
-    return session;
-  }
-  const demoMutationStatus = { NOT_FOUND: 404, INVALID: 400, LIMIT_REACHED: 409 } as const;
-  const demoMutation = (res: any, result: ReturnType<DemoPortalStore['addItem']>, successStatus = 200) => {
-    if (!result.ok) return res.status(demoMutationStatus[result.code]).json({ success: false, code: result.code, error: result.error });
-    return res.status(successStatus).json({ success: true, item: result.value });
-  };
-  app.post('/api/portals/:role/demo/items', (req, res) => {
-    const session = demoSandboxFor(req, res);
-    if (!session) return;
-    const limit = hitRateLimit('demo-portal-write', session.token, 120, 10 * 60 * 1000);
-    if (!limit.allowed) return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many changes. Please slow down.' });
-    const { sectionId, title, detail, status } = req.body || {};
-    return demoMutation(res, demoPortals.addItem(session, sectionId, title, detail, status), 201);
-  });
-  app.patch('/api/portals/:role/demo/items/:itemId', (req, res) => {
-    const session = demoSandboxFor(req, res);
-    if (!session) return;
-    return demoMutation(res, demoPortals.setStatus(session, req.params.itemId, req.body?.status));
-  });
-  app.delete('/api/portals/:role/demo/items/:itemId', (req, res) => {
-    const session = demoSandboxFor(req, res);
-    if (!session) return;
-    return demoMutation(res, demoPortals.removeItem(session, req.params.itemId));
   });
 
   // ---- Hospital portal auth endpoints ----
@@ -8429,12 +7610,14 @@ Request ID: ${requestId}`,
   // to disk so restarts do not lose AI history.
   try {
     const persistedConversations = readJsonFile<ServerAiConversation[]>(AI_CONVERSATIONS_FILE, []);
-    for (const c of persistedConversations) {
+    const retainedConversations = persistedConversations.filter(conversation => !isRemovedDemoUserId(conversation?.userId));
+    if (retainedConversations.length !== persistedConversations.length) writeJsonFile(AI_CONVERSATIONS_FILE, retainedConversations);
+    for (const c of retainedConversations) {
       if (
         c &&
         typeof c.id === 'string' &&
         typeof c.userId === 'string' &&
-        !isDemoAccountId(c.userId) &&
+        !isRemovedDemoUserId(c.userId) &&
         Array.isArray(c.messages)
       ) {
         AI_CONVERSATIONS.set(c.id, {
@@ -8449,13 +7632,15 @@ Request ID: ${requestId}`,
       AI_SHARE_LINKS_FILE,
       []
     );
-    for (const share of persistedShares) {
+    const retainedShares = persistedShares.filter(share => !isRemovedDemoUserId(share?.userId));
+    if (retainedShares.length !== persistedShares.length) writeJsonFile(AI_SHARE_LINKS_FILE, retainedShares);
+    for (const share of retainedShares) {
       if (
         share &&
         typeof share.token === 'string' &&
         typeof share.conversationId === 'string' &&
         typeof share.userId === 'string' &&
-        !isDemoAccountId(share.userId)
+        !isRemovedDemoUserId(share.userId)
       ) {
         AI_SHARE_LINKS.set(share.token, share);
       }
@@ -8467,87 +7652,13 @@ Request ID: ${requestId}`,
   const persistAiConversations = () =>
     writeJsonFile(
       AI_CONVERSATIONS_FILE,
-      [...AI_CONVERSATIONS.values()].filter((conversation) => !isDemoAccountId(conversation.userId))
+      [...AI_CONVERSATIONS.values()].filter((conversation) => !isRemovedDemoUserId(conversation.userId))
     );
   const persistAiShareLinks = () =>
     writeJsonFile(
       AI_SHARE_LINKS_FILE,
-      [...AI_SHARE_LINKS.values()].filter((share) => !isDemoAccountId(share.userId))
+      [...AI_SHARE_LINKS.values()].filter((share) => !isRemovedDemoUserId(share.userId))
     );
-
-  cleanupEphemeralDemoAccount = (userId: string) => {
-    markDemoUserEnded(userId);
-    const user = PUBLIC_USERS.get(userId);
-    if (!user?.isEphemeralDemo) {
-      for (const [token, session] of ACTIVE_SESSIONS.entries()) {
-        if (session.userId === userId && session.isDemoSession) ACTIVE_SESSIONS.delete(token);
-      }
-      return;
-    }
-
-    const requests = CONSENT_REQUESTS.get(userId) || [];
-    const requestIds = new Set(requests.map((request) => request.requestId));
-    for (const request of requests) {
-      if (request.attachment?.attachmentId) ATTACHMENTS.delete(request.attachment.attachmentId);
-    }
-
-    for (const [token, session] of ACTIVE_SESSIONS.entries()) {
-      if (session.userId === userId) ACTIVE_SESSIONS.delete(token);
-    }
-    PUBLIC_USERS.delete(userId);
-    PRIVATE_DATA.delete(userId);
-    CONSENT_REQUESTS.delete(userId);
-    DOCTOR_ACCESS.delete(userId);
-    EHR_RECORDS.delete(userId);
-    EMAIL_OUTBOX.delete(userId);
-    RETENTION_ARCHIVE.delete(userId);
-    REAUTH_ATTEMPTS.delete(userId);
-    for (const [token, share] of EHR_CONSENT_SHARES.entries()) {
-      if (share.userId === userId) EHR_CONSENT_SHARES.delete(token);
-    }
-    for (const [token, link] of EMAIL_LINK_TOKENS.entries()) {
-      if (link.patientUserId === userId) EMAIL_LINK_TOKENS.delete(token);
-    }
-    for (const requestId of requestIds) DECIDED_REQUESTS.delete(requestId);
-    for (const [doctorId, notifications] of DOCTOR_NOTIFICATIONS.entries()) {
-      const remaining = notifications.filter((notification) =>
-        notification.patientUserId !== userId && !requestIds.has(notification.requestId || '')
-      );
-      if (remaining.length) DOCTOR_NOTIFICATIONS.set(doctorId, remaining);
-      else DOCTOR_NOTIFICATIONS.delete(doctorId);
-    }
-    for (let index = consentAudit.length - 1; index >= 0; index -= 1) {
-      if (consentAudit[index]?.patientUserId === userId) consentAudit.splice(index, 1);
-    }
-    lastAuditHash.delete(userId);
-    for (const [conversationId, conversation] of AI_CONVERSATIONS.entries()) {
-      if (conversation.userId === userId) AI_CONVERSATIONS.delete(conversationId);
-    }
-    for (const [token, share] of AI_SHARE_LINKS.entries()) {
-      if (share.userId === userId) AI_SHARE_LINKS.delete(token);
-    }
-    for (let index = AUDIT_LOGS.length - 1; index >= 0; index -= 1) {
-      if (AUDIT_LOGS[index]?.userId === userId) AUDIT_LOGS.splice(index, 1);
-    }
-
-    persistRuntimeAccounts();
-    persistEhrConsentShares();
-    persistAiConversations();
-    persistAiShareLinks();
-    persistDomainStateNow();
-  };
-
-  const demoExpirySweeper = setInterval(() => {
-    const now = Date.now();
-    for (const session of [...ACTIVE_SESSIONS.values()]) {
-      if (session.isDemoSession && (!session.expiresAt || session.expiresAt <= now)) {
-        cleanupEphemeralDemoAccount(session.userId);
-      }
-    }
-  }, 60 * 1000);
-  demoExpirySweeper.unref();
-  const demoPortalSweeper = setInterval(() => { demoPortals.sweep(); }, 60 * 1000);
-  demoPortalSweeper.unref();
 
   const aiConvId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -8980,32 +8091,19 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
   // ----------------------------------------------------------------------
   const RUNTIME_DOMAIN_STORE = path.join(RUNTIME_DIR, 'domain-store.json');
   const persistDomainState = () => {
-    const demoRequestIds = new Set(
-      [...CONSENT_REQUESTS.entries()]
-        .filter(([patientId]) => isDemoAccountId(patientId))
-        .flatMap(([, requests]) => requests.map((request) => request.requestId))
-    );
-    const demoAttachmentIds = new Set(
-      [...CONSENT_REQUESTS.entries()]
-        .filter(([patientId]) => isDemoAccountId(patientId))
-        .flatMap(([, requests]) => requests.map((request) => request.attachment?.attachmentId).filter(Boolean))
-    );
     writeSecureJsonFile(RUNTIME_DOMAIN_STORE, {
       savedAt: new Date().toISOString(),
       doctors: [...DOCTORS.entries()],
       doctorSessions: [...DOCTOR_SESSIONS.entries()],
       doctorResetTokens: [...DOCTOR_RESET_TOKENS.entries()],
       doctorApplications: [...DOCTOR_APPLICATIONS.entries()],
-      consentRequests: [...CONSENT_REQUESTS.entries()].filter(([patientId]) => !isDemoAccountId(patientId)),
-      doctorAccess: [...DOCTOR_ACCESS.entries()].filter(([patientId]) => !isDemoAccountId(patientId)),
-      ehrRecords: [...EHR_RECORDS.entries()].filter(([patientId]) => !isDemoAccountId(patientId)),
-      attachments: [...ATTACHMENTS.entries()].filter(([attachmentId]) => !demoAttachmentIds.has(attachmentId)),
-      doctorNotifications: [...DOCTOR_NOTIFICATIONS.entries()].map(([doctorId, notifications]) => [
-        doctorId,
-        notifications.filter((notification) => !demoRequestIds.has(notification.requestId || ''))
-      ]),
-      retentionArchive: [...RETENTION_ARCHIVE.entries()].filter(([patientId]) => !isDemoAccountId(patientId)),
-      decidedRequests: [...DECIDED_REQUESTS.entries()].filter(([requestId]) => !demoRequestIds.has(requestId)),
+      consentRequests: [...CONSENT_REQUESTS.entries()].filter(([patientId]) => !isRemovedDemoUserId(patientId)),
+      doctorAccess: [...DOCTOR_ACCESS.entries()].filter(([patientId]) => !isRemovedDemoUserId(patientId)),
+      ehrRecords: [...EHR_RECORDS.entries()].filter(([patientId]) => !isRemovedDemoUserId(patientId)),
+      attachments: [...ATTACHMENTS.entries()],
+      doctorNotifications: [...DOCTOR_NOTIFICATIONS.entries()],
+      retentionArchive: [...RETENTION_ARCHIVE.entries()].filter(([patientId]) => !isRemovedDemoUserId(patientId)),
+      decidedRequests: [...DECIDED_REQUESTS.entries()],
       newsAdmins: [...NEWS_ADMINS.entries()],
       authorities: [...AUTHORITIES.entries()],
       newsAdminSessions: [...NEWS_ADMIN_SESSIONS.entries()],
@@ -9025,59 +8123,27 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
       hospitalResetTokens: [...HOSPITAL_RESET_TOKENS.entries()]
     });
   };
-  persistDomainStateNow = persistDomainState;
   {
-    // Demo professional credentials are never valid on a fresh production deployment.
-    if (IS_PRODUCTION) { DOCTORS.clear(); HOSPITAL_ACCOUNTS.clear(); PHARMACY_PARTNER_ACCOUNTS.clear(); }
-    const persisted = readJsonFile<Record<string, any>>(RUNTIME_DOMAIN_STORE, {});
+    const migration = removeDemoDomainAccounts(readJsonFile<Record<string, any>>(RUNTIME_DOMAIN_STORE, {}), isRemovedDemoUserId);
+    const persisted = migration.store;
+    if (migration.changed) writeSecureJsonFile(RUNTIME_DOMAIN_STORE, { ...persisted, savedAt: new Date().toISOString() });
     const apply = (entries: any, setter: (key: any, value: any) => void) => {
       if (!Array.isArray(entries)) return;
-      for (const [key, value] of entries as [any, any][]) setter(key, value);
-    };
-    const persistedDemoRequests = (Array.isArray(persisted.consentRequests) ? persisted.consentRequests : [])
-      .filter((entry: any) => Array.isArray(entry) && isDemoAccountId(String(entry[0])))
-      .flatMap(([, requests]: any[]) => Array.isArray(requests) ? requests : []);
-    const persistedDemoRequestIds = new Set(persistedDemoRequests.map((request: any) => String(request?.requestId || '')));
-    const persistedDemoAttachmentIds = new Set(
-      persistedDemoRequests.map((request: any) => request?.attachment?.attachmentId).filter(Boolean)
-    );
-    const applyNonDemoPatientEntries = (entries: any, setter: (key: any, value: any) => void) => {
-      if (!Array.isArray(entries)) return;
-      for (const [key, value] of entries as [any, any][]) {
-        if (!isDemoAccountId(String(key))) setter(key, value);
+      for (const entry of entries) {
+        if (Array.isArray(entry) && entry.length === 2 && typeof entry[0] === 'string') setter(entry[0], entry[1]);
       }
     };
     apply(persisted.doctors as any, (k, v) => DOCTORS.set(k, v));
     apply(persisted.doctorSessions as any, (k, v) => DOCTOR_SESSIONS.set(k, v));
     apply(persisted.doctorResetTokens as any, (k, v) => DOCTOR_RESET_TOKENS.set(k, v));
     apply(persisted.doctorApplications as any, (k, v) => DOCTOR_APPLICATIONS.set(k, v));
-    applyNonDemoPatientEntries(persisted.consentRequests as any, (k, v) => CONSENT_REQUESTS.set(k, v));
-    applyNonDemoPatientEntries(persisted.doctorAccess as any, (k, v) => DOCTOR_ACCESS.set(k, v));
-    applyNonDemoPatientEntries(persisted.ehrRecords as any, (k, v) => EHR_RECORDS.set(k, v));
-    apply(
-      Array.isArray(persisted.attachments)
-        ? persisted.attachments.filter(([attachmentId]: any[]) => !persistedDemoAttachmentIds.has(attachmentId))
-        : [],
-      (k, v) => ATTACHMENTS.set(k, v)
-    );
-    apply(
-      Array.isArray(persisted.doctorNotifications)
-        ? persisted.doctorNotifications.map(([doctorId, notifications]: any[]) => [
-            doctorId,
-            Array.isArray(notifications)
-              ? notifications.filter((notification: any) => !persistedDemoRequestIds.has(String(notification?.requestId || '')))
-              : []
-          ])
-        : [],
-      (k, v) => DOCTOR_NOTIFICATIONS.set(k, v)
-    );
-    applyNonDemoPatientEntries(persisted.retentionArchive as any, (k, v) => RETENTION_ARCHIVE.set(k, v));
-    apply(
-      Array.isArray(persisted.decidedRequests)
-        ? persisted.decidedRequests.filter(([requestId]: any[]) => !persistedDemoRequestIds.has(String(requestId)))
-        : [],
-      (k, v) => DECIDED_REQUESTS.set(k, v)
-    );
+    apply(persisted.consentRequests as any, (k, v) => CONSENT_REQUESTS.set(k, v));
+    apply(persisted.doctorAccess as any, (k, v) => DOCTOR_ACCESS.set(k, v));
+    apply(persisted.ehrRecords as any, (k, v) => EHR_RECORDS.set(k, v));
+    apply(persisted.attachments as any, (k, v) => ATTACHMENTS.set(k, v));
+    apply(persisted.doctorNotifications as any, (k, v) => DOCTOR_NOTIFICATIONS.set(k, v));
+    apply(persisted.retentionArchive as any, (k, v) => RETENTION_ARCHIVE.set(k, v));
+    apply(persisted.decidedRequests as any, (k, v) => DECIDED_REQUESTS.set(k, v));
     apply(persisted.newsAdmins as any, (k, v) => NEWS_ADMINS.set(k, v));
     apply(persisted.authorities as any, (k, v) => AUTHORITIES.set(k, v));
     apply(persisted.newsAdminSessions as any, (k, v) => NEWS_ADMIN_SESSIONS.set(k, v));

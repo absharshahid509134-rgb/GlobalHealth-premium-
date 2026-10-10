@@ -9,6 +9,10 @@ import { BiomedicalProvider } from './context/BiomedicalContext';
 import { DiagnosticProvider } from './context/DiagnosticContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import './index.css';
+import { cleanupLegacyDemoBrowserAccounts } from './services/legacyDemoCleanup';
+
+// Remove retired fixture accounts before any provider restores cached state.
+cleanupLegacyDemoBrowserAccounts();
 
 // Prevent a lazy route or third-party widget from taking down the entire
 // application. Errors are shown as an actionable, accessible recovery screen;

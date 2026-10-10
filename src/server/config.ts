@@ -18,12 +18,8 @@ export interface RuntimeConfig {
   medAuthRegistrySecret: string;
   prescriptionSigningSecret: string;
   ghAdminKey: string;
-  /** Public, passwordless entry to an isolated synthetic user sandbox. */
-  publicDemoEnabled: boolean;
   /** Express `trust proxy` setting so req.ip is the real visitor behind a load balancer. */
   trustProxy: boolean | number | string;
-  /** Optional stable secret for signing demo session tokens (survives restarts/instances). */
-  demoSessionSecret: string;
   newsAdminBootstrap: {
     email: string;
     password: string;
@@ -37,8 +33,8 @@ const PROD_ORIGIN = /^https?:\/\/[a-z0-9.-]+(?::\d+)?$/i;
 /**
  * Resolve TRUST_PROXY. Hosted platforms (Render, Railway, Fly, Cloud Run, Heroku,
  * Vercel, nginx, ...) terminate TLS at a reverse proxy, so without this every
- * visitor shares the proxy's IP and the per-IP rate limits (including demo
- * sign-in) would lock everyone out after a few requests.
+ * visitor shares the proxy's IP and the per-IP authentication rate limits
+ * would lock everyone out after a few requests.
  * Accepts: true/false, a hop count (e.g. 1) or an Express subnet list.
  * Defaults to 1 hop in production and off elsewhere.
  */
@@ -76,12 +72,6 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   const medAuthRegistrySecret = (env.MEDAUTH_REGISTRY_SECRET || '').trim();
   const prescriptionSigningSecret = (env.PRESCRIPTION_SIGNING_SECRET || '').trim();
   const ghAdminKey = (env.GH_ADMIN_KEY || '').trim();
-  // A synthetic, isolated demo is available by default in local and deployed
-  // runtimes. Tests stay closed unless explicitly enabled to avoid accidental
-  // exposure from fixture servers.
-  const publicDemoOverride = (env.PUBLIC_DEMO_ENABLED || '').trim().toLowerCase();
-  const publicDemoEnabled = publicDemoOverride === 'true' || (!isTest && publicDemoOverride !== 'false');
-
   if (isProduction && !ghAdminKey) {
     warnings.push('GH_ADMIN_KEY is not set; pharmacy-partner administrative verification is disabled.');
   }
@@ -117,8 +107,6 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     medAuthRegistrySecret,
     prescriptionSigningSecret,
     ghAdminKey,
-    publicDemoEnabled,
-    demoSessionSecret: (env.DEMO_SESSION_SECRET || '').trim(),
     trustProxy: parseTrustProxy(env.TRUST_PROXY || '', isProduction),
     newsAdminBootstrap: {
       email: (env.NEWS_ADMIN_BOOTSTRAP_EMAIL || '').trim(),

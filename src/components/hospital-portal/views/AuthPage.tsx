@@ -87,15 +87,15 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   const [activeTab, setActiveTab] = useState<AuthTab>(initialTab);
 
   // Login Form State
-  const [loginIdentifier, setLoginIdentifier] = useState('apex_admin');
-  const [loginPassword, setLoginPassword] = useState('Password@123');
+  const [loginIdentifier, setLoginIdentifier] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   const [showLoginPassword, setShowLoginPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loginError, setLoginError] = useState('');
   const [loginLoading, setLoginLoading] = useState(false);
 
   // Activation Form State
-  const [activationTokenInput, setActivationTokenInput] = useState('ACT-STJUDE-2026-9F8A');
+  const [activationTokenInput, setActivationTokenInput] = useState('');
   const [verifiedApplication, setVerifiedApplication] = useState<HospitalApplication | null>(null);
   const [tokenValidationError, setTokenValidationError] = useState('');
   const [newUsername, setNewUsername] = useState('');
@@ -730,50 +730,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </button>
               </form>
 
-              {/* Verified Hospital Demo Credential Chips */}
-              <div className="pt-4 border-t border-[#DCEBE4] space-y-2">
-                <p className="text-[11px] font-bold text-[#52635C] uppercase tracking-wider">
-                  Test Credentials (Approved Hospital Accounts)
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLoginIdentifier('apex_admin');
-                      setLoginPassword('Password@123');
-                    }}
-                    className="p-2.5 rounded-xl border border-[#DCEBE4] hover:border-[#008F68] bg-[#F6FBF8] text-left transition cursor-pointer text-xs"
-                  >
-                    <p className="font-bold text-[#17221E]">Apex Heart Institute</p>
-                    <p className="text-[11px] text-[#52635C] font-mono">@apex_admin</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLoginIdentifier('cleveland_ad_admin');
-                      setLoginPassword('Password@123');
-                    }}
-                    className="p-2.5 rounded-xl border border-[#DCEBE4] hover:border-[#008F68] bg-[#F6FBF8] text-left transition cursor-pointer text-xs"
-                  >
-                    <p className="font-bold text-[#17221E]">Cleveland Clinic Abu Dhabi</p>
-                    <p className="text-[11px] text-[#52635C] font-mono">@cleveland_ad_admin</p>
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setLoginIdentifier('mayo_admin');
-                      setLoginPassword('Password@123');
-                    }}
-                    className="p-2.5 rounded-xl border border-[#DCEBE4] hover:border-[#008F68] bg-[#F6FBF8] text-left transition cursor-pointer text-xs"
-                  >
-                    <p className="font-bold text-[#17221E]">Mayo Clinic Rochester</p>
-                    <p className="text-[11px] text-[#52635C] font-mono">@mayo_admin</p>
-                  </button>
-                </div>
-              </div>
-
               {/* Bottom Assistance Links */}
               <div className="flex flex-wrap items-center justify-between gap-2 pt-2 text-xs text-[#52635C]">
                 <button
@@ -844,7 +800,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                         type="text"
                         value={activationTokenInput}
                         onChange={(e) => setActivationTokenInput(e.target.value.trim())}
-                        placeholder="e.g. ACT-STJUDE-2026-9F8A"
+                        placeholder="Enter your activation token"
                         className="flex-1 px-3.5 py-2 text-xs font-mono bg-white border border-[#D8E7E0] rounded-xl text-[#17221E] focus:outline-none focus:border-[#008F68]"
                       />
                       <button
@@ -858,16 +814,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
                     <div className="flex items-center justify-between text-[11px] text-[#52635C]">
                       <span>Issued via official regulatory dispatch email.</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActivationTokenInput('ACT-STJUDE-2026-9F8A');
-                          handleValidateToken();
-                        }}
-                        className="text-[#008F68] hover:underline font-semibold cursor-pointer"
-                      >
-                        Use Demo Approved Token (St. Jude)
-                      </button>
                     </div>
 
                     {tokenValidationError && (
@@ -1478,24 +1424,6 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                   Search
                 </button>
               </form>
-
-              {/* Demo Quick Chips */}
-              <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="text-[11px] text-[#52635C] font-semibold">Demo Records:</span>
-                {applications.map((app) => (
-                  <button
-                    key={app.id}
-                    type="button"
-                    onClick={() => {
-                      setTrackSearchId(app.id);
-                      setTrackedApplication(app);
-                    }}
-                    className="px-2.5 py-1 rounded-lg border border-[#DCEBE4] hover:bg-[#F6FBF8] text-[11px] font-mono text-[#52635C] cursor-pointer"
-                  >
-                    {app.id} ({app.status})
-                  </button>
-                ))}
-              </div>
 
               {/* Tracked Record Details */}
               {trackedApplication ? (

@@ -1,5 +1,4 @@
 import { PublicUserAccount, PublicUserSession, SecurityAuditLogEntry, PasswordStrength } from '../types/auth';
-import type { PlatformRole } from '../core/platformRoles';
 
 const SESSION_STORAGE_KEY = 'globalhealth_user_session';
 const TOKEN_STORAGE_KEY = 'globalhealth_auth_token';
@@ -77,27 +76,6 @@ export async function loginUser(identifier: string, password: string, rememberMe
     return {
       success: false,
       error: 'Network connection failed. Please verify your internet connection and try again.'
-    };
-  }
-}
-
-/**
- * Starts a new, visitor-isolated synthetic sandbox for the given portal
- * (User by default; Doctor, Hospital, Pharmacy or News Management).
- */
-export async function startPublicDemoSession(role: PlatformRole = 'user') {
-  try {
-    const res = await fetch('/api/auth/demo-login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(role === 'user' ? {} : { role }),
-      cache: 'no-store'
-    });
-    return await res.json();
-  } catch {
-    return {
-      success: false,
-      error: 'The demo could not connect. Please check your connection and try again.'
     };
   }
 }

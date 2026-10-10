@@ -627,13 +627,7 @@ export const seedOrganizations: HospitalOrganization[] = [
   },
 ];
 
-export const seedStaff: HospitalStaff[] = [
-  { id: 'st-1', hospitalId: 'hosp-ghmc', name: 'R. Kapoor', email: 'admin@ghmc.example.com', role: 'owner', permissions: [...ROLE_PERMISSIONS.owner], status: 'active', invitedAt: '2026-04-02', joinedAt: '2026-04-02', lastActiveAt: '2026-08-30 08:12' },
-  { id: 'st-2', hospitalId: 'hosp-ghmc', name: 'S. Menon', email: 'ops@ghmc.example.com', role: 'administrator', permissions: [...ROLE_PERMISSIONS.administrator], status: 'active', invitedAt: '2026-04-05', joinedAt: '2026-04-06', lastActiveAt: '2026-08-29 17:40' },
-  { id: 'st-3', hospitalId: 'hosp-ghmc', name: 'A. Iyer', email: 'front@ghmc.example.com', role: 'receptionist', permissions: [...ROLE_PERMISSIONS.receptionist], status: 'active', invitedAt: '2026-04-10', joinedAt: '2026-04-12', lastActiveAt: '2026-08-30 09:05' },
-  { id: 'st-4', hospitalId: 'hosp-ghmc', name: 'T. Bhat', email: 'audit@ghmc.example.com', role: 'read_only', permissions: [...ROLE_PERMISSIONS.read_only], status: 'active', invitedAt: '2026-05-01', joinedAt: '2026-05-02', lastActiveAt: '2026-08-27 11:20' },
-  { id: 'st-5', hospitalId: 'hosp-city', name: 'V. Rao', email: 'admin@cityhospital.example.com', role: 'owner', permissions: [...ROLE_PERMISSIONS.owner], status: 'active', invitedAt: '2026-08-10', joinedAt: '2026-08-10', lastActiveAt: '2026-08-28 15:00' },
-];
+export const seedStaff: HospitalStaff[] = [];
 
 export const seedDepartments: Department[] = [
   {
@@ -826,10 +820,7 @@ export const seedAudit: AuditEvent[] = [
   { id: 'aud-6', organizationId: 'hosp-ghmc', actor: 'R. Kapoor', action: 'DOCUMENT_ACCESS', resourceType: 'document', resourceId: 'doc-3', date: '2026-08-20', time: '16:45', ip: '103.21.58.12', location: 'New Delhi, IN', outcome: 'success' },
 ];
 
-export const seedSessions: Session[] = [
-  { id: 'sess-4401', device: 'MacBook Pro', browser: 'Chrome 128', location: 'New Delhi, IN', ip: '103.21.58.12', signedInAt: '2026-08-30 08:12', lastActive: 'now', current: true },
-  { id: 'sess-4388', device: 'iPad Air', browser: 'Safari 18', location: 'New Delhi, IN', ip: '103.21.58.12', signedInAt: '2026-08-28 19:00', lastActive: '2026-08-28 21:30', current: false },
-];
+export const seedSessions: Session[] = [];
 
 export const seedSecurity: SecurityState = {
   mfaEnabled: false,
@@ -898,41 +889,14 @@ export function computeCompleteness(h: HospitalOrganization): { pct: number; mis
 const wait = (ms = 450) => new Promise((r) => setTimeout(r, ms));
 
 export const hospitalPortalApi = {
-  async login(identifier: string, password: string) {
+  async login(_identifier: string, _password: string) {
     await wait();
-    if (identifier.trim().toLowerCase() === 'admin@ghmc.example.com' && password.length >= 8) {
-      return { success: true as const, organizations: seedOrganizations, staffRole: 'owner' as const };
-    }
-    if (identifier.trim() && password.length >= 8) {
-      // Fresh hospital registration — unverified, draft profile.
-      const fresh: HospitalOrganization = {
-        ...seedOrganizations[0],
-        id: `hosp-${Date.now()}`,
-        legalName: '',
-        displayName: '',
-        facilityType: '',
-        ownershipType: '',
-        description: '',
-        website: '',
-        publicPhone: '',
-        publicEmail: identifier.trim(),
-        address: '', city: '', state: '', country: '', postalCode: '',
-        latitude: 0, longitude: 0, locationVerified: false, locationAccuracy: 'approximate',
-        verificationStatus: 'pending',
-        verificationSource: 'Not started',
-        publicStatus: 'draft',
-        completeness: 0,
-        missingProfileFields: ['Complete hospital information', 'Submit verification documents'],
-        hours: [],
-        emergency: { available: false, description: '', hours: '', contact: '' },
-        accessibility: { wheelchairEntrance: false, accessibleParking: false, elevators: false, accessibleRestrooms: false, hearingAssistance: false, visualAssistance: false },
-        photos: [],
-        accreditations: [],
-        insurance: { acceptedPlans: [], paymentMethods: [], insuranceDesk: '', disclaimer: 'Coverage confirmation may be required before admission.' },
-      };
-      return { success: true as const, organizations: [fresh], staffRole: 'owner' as const };
-    }
-    return { success: false as const, error: 'Unable to sign in with those credentials.' };
+    return {
+      success: false as const,
+      organizations: [] as HospitalOrganization[],
+      staffRole: 'owner' as const,
+      error: 'Sign in through the centralized GlobalHealth authentication page with your provisioned hospital account.'
+    };
   },
 
   async signup() {

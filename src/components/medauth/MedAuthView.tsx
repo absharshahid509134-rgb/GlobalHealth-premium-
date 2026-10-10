@@ -90,10 +90,6 @@ const MedAuthInnerView: React.FC<MedAuthViewProps> = ({ onBackToGlobalHealth }) 
             button: 'bg-emerald-600 hover:bg-emerald-700 text-white',
             chip: 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100',
           }}
-          demoAccounts={[
-            { id: 'doc-chen', label: 'Dr. Alexandra Chen', identifier: 'doc_alex_chen', password: 'chen123' },
-            { id: 'doc-harrison', label: 'Dr. Robert Harrison', identifier: 'doc_rob_harrison', password: 'harr123' },
-          ]}
           onValidate={async (identifier, password) => {
             const result = await doctorLogin(identifier, password);
             return { success: result.success, error: result.success ? undefined : result.message };

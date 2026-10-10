@@ -373,53 +373,7 @@ export class PharmacyPortalService {
 
   // Applications
   static getApplications(): PharmacyApplicationRecord[] {
-    const defaultApps: PharmacyApplicationRecord[] = [
-      {
-        applicationId: 'APP-GH-99214',
-        legalEntityName: 'Apex Healthcare & Retail Dispensaries Pvt. Ltd.',
-        tradeName: 'Apex Central Clinical Dispensary',
-        pharmacyType: 'Hospital Pharmacy',
-        ownershipType: 'Private Limited',
-        phone: '+91 11 4982 3000',
-        email: 'dispensary@apexhealth.org',
-        address: 'Hospital Complex B, Ring Road, South Extension',
-        city: 'New Delhi',
-        state: 'Delhi',
-        pincode: '110029',
-        drugLicenseNumber: 'DL-ND-2024-88910',
-        pharmacistName: 'Dr. S. K. Ramanathan',
-        pharmacistRegNo: 'PCI-DL-184920',
-        operatingHours: '24 Hours',
-        totalBranches: 4,
-        submittedAt: '12 Jan 2024',
-        status: 'Approved',
-        statusNotes: 'All 5 compliance stages verified. Account active.',
-        otpVerified: true
-      },
-      {
-        applicationId: 'APP-GH-10492',
-        legalEntityName: 'MediTrust Specialty Care Pharmacy LLP',
-        tradeName: 'MediTrust Oncology & Biologics Pharmacy',
-        pharmacyType: 'Specialty Pharmacy',
-        ownershipType: 'Partnership',
-        phone: '+91 22 4192 8800',
-        email: 'compliance@meditrust.org',
-        address: '88 Chembur Medical Arcade, Eastern Express Hwy',
-        city: 'Mumbai',
-        state: 'Maharashtra',
-        pincode: '400071',
-        drugLicenseNumber: 'MH-MZ4-2025-4109',
-        pharmacistName: 'Dr. Priya Kamat',
-        pharmacistRegNo: 'PCI-MH-99120',
-        operatingHours: '08:00 AM - 10:00 PM',
-        totalBranches: 2,
-        submittedAt: 'Yesterday at 04:15 PM',
-        status: 'Under Review',
-        statusNotes: 'Pharmacist Council verification in progress with Maharashtra Council.',
-        otpVerified: true
-      }
-    ];
-    return this.getStored(STORAGE_KEYS.APPLICATIONS, defaultApps);
+    return this.getStored<PharmacyApplicationRecord[]>(STORAGE_KEYS.APPLICATIONS, []);
   }
 
   static submitApplication(app: Omit<PharmacyApplicationRecord, 'applicationId' | 'submittedAt' | 'status' | 'statusNotes' | 'otpVerified'>): PharmacyApplicationRecord {
