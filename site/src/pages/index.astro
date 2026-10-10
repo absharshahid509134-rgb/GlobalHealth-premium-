@@ -1,0 +1,102 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import Logo from '~/components/Logo.astro';
+import { getStrings, LOCALES, localePath } from '~/i18n';
+
+const t = getStrings('en');
+
+/**
+ * `/` — language entry point.
+ *
+ * Most visitors arrive here from a shared link and never chose a language. We
+ * detect from `Accept-Language`, honour a previously chosen locale, and show a
+ * full picker if neither resolves — so nobody is ever stranded on a redirect.
+ */
+---
+
+<BaseLayout
+  lang="en"
+  slug={[]}
+  title={t.site.name}
+  description={t.site.description}
+  path=""
+  noindex
+>
+  <section class="gh-aurora relative flex min-h-[calc(100dvh-4.25rem)] items-center overflow-hidden">
+    <div class="gh-grid-lines pointer-events-none absolute inset-0 opacity-30" aria-hidden="true"></div>
+
+    <div class="gh-shell relative py-16 text-center">
+      <div class="mx-auto flex w-fit flex-col items-center">
+        <Logo class="h-10 w-auto scale-125" />
+        <h1 class="gh-display-2 mt-8 text-[var(--color-fg)]">{t.a11y.chooseLanguage}</h1>
+        <p class="gh-lead mx-auto mt-4 max-w-lg">{t.a11y.languageHelp}</p>
+      </div>
+
+      <ul class="mx-auto mt-10 grid max-w-3xl grid-cols-2 gap-3 sm:grid-cols-4">
+        {
+          LOCALES.map((l) => (
+            <li>
+              <a
+                href={localePath(l.code)}
+                lang={l.code}
+                hreflang={l.code}
+                class="gh-card gh-card-hover flex h-full flex-col items-center gap-2 p-5 text-center"
+              >
+                <span class="text-2xl leading-none" aria-hidden="true">{l.flag}</span>
+                <span class="text-[0.92rem] font-bold text-[var(--color-fg)]">{l.nativeName}</span>
+                <span class="text-[0.72rem] text-[var(--color-fg-subtle)]">{l.englishName}</span>
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+
+      <p class="mt-10 flex flex-col items-center gap-3 text-[0.85rem] text-[var(--color-fg-muted)]">
+        <span class="gh-anim-pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-brand-500" aria-hidden="true"></span>
+        <span id="redirect-note" aria-live="polite"></span>
+        <a href={localePath('en')} class="gh-link">{t.a11y.continueInEnglish}</a>
+      </p>
+    </div>
+  </section>
+</BaseLayout>
+
+<script is:inline define:vars={{ locales: LOCALES.map((l) => ({ code: l.code, intl: l.intl })) }}>
+  (function () {
+    var STORAGE_KEY = 'gh-locale';
+
+    function pick() {
+      try {
+        var saved = localStorage.getItem(STORAGE_KEY);
+        if (saved && locales.some(function (l) { return l.code === saved; })) return saved;
+      } catch (e) {
+        /* storage blocked */
+      }
+      // `navigator.languages` respects the user's ordered language list.
+      var list = (navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language]) || [];
+      for (var i = 0; i < list.length; i++) {
+        var tag = String(list[i] || '').toLowerCase();
+        if (!tag) continue;
+        var exact = locales.find(function (l) { return l.intl.toLowerCase() === tag; });
+        if (exact) return exact.code;
+        var base = tag.split('-')[0];
+        var loose = locales.find(function (l) { return l.intl.toLowerCase().split('-')[0] === base; });
+        if (loose) return loose.code;
+      }
+      return 'en';
+    }
+
+    var target = pick();
+    var note = document.getElementById('redirect-note');
+    if (note) {
+      note.textContent = '';
+    }
+    // Only auto-navigate from the bare root, so a deep link or a back button
+    // never gets hijacked.
+    if (window.location.pathname === '/' || window.location.pathname === '') {
+      var dest = '/' + target + '/';
+      if (dest !== window.location.pathname) {
+        window.location.replace(dest);
+      }
+    }
+  })();
+</script>

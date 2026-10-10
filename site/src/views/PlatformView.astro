@@ -1,0 +1,159 @@
+---
+import PageHero from '~/components/PageHero.astro';
+import SectionHead from '~/components/SectionHead.astro';
+import CtaBand from '~/components/CtaBand.astro';
+import Icon, { type IconName } from '~/components/Icon.astro';
+import { getStrings, localePath } from '~/i18n';
+
+interface Props { lang: string }
+const { lang } = Astro.props;
+const t = getStrings(lang);
+const p = t.pages.platform;
+
+const MODULE_ICONS: IconName[] = ['book', 'pill', 'flask', 'map', 'spark', 'lock'];
+const MODULE_IDS = ['diseases', 'medicines', 'diagnostics', 'directory', 'ai', 'records'];
+const ARCH_ICONS: IconName[] = ['zap', 'languages', 'download', 'stethoscope'];
+---
+
+<PageHero
+  lang={lang}
+  eyebrow={p.eyebrow}
+  title={p.title}
+  lead={p.lead}
+  points={p.heroPoints}
+/>
+
+<!-- Inside each module: alternating 2-column details, each a 1fr 1fr split. -->
+<section class="gh-section" aria-labelledby="modules-detail-title">
+  <div class="gh-shell">
+    <SectionHead
+      id="modules-detail-title"
+      title={p.moduleHeading}
+      align="center"
+    />
+
+    <div class="mt-12 space-y-4">
+      {
+        t.home.modules.items.map((item, i) => {
+          return (
+            <article
+              id={MODULE_IDS[i]}
+              class="gh-card scroll-mt-28 overflow-hidden p-6 transition duration-200 hover:border-brand-200 hover:shadow-[var(--shadow-md)] sm:p-8"
+              data-reveal
+            >
+              <div class="gh-split">
+                <div class="flex items-start gap-4">
+                  <span class="gh-icon-tile gh-icon-tile-lg shrink-0">
+                    <Icon name={MODULE_ICONS[i]} class="h-6 w-6" />
+                  </span>
+                  <div class="min-w-0">
+                    <span class="gh-chip !py-0.5 !text-[0.65rem]">{item.tag}</span>
+                    <h3 class="mt-3 font-display text-[1.2rem] font-bold text-[var(--color-fg)]">{item.title}</h3>
+                    <p class="mt-2.5 text-[0.92rem] leading-relaxed text-[var(--color-fg-muted)]">{item.desc}</p>
+                  </div>
+                </div>
+
+                <ul class="grid content-start gap-2.5 sm:grid-cols-2 lg:grid-cols-1 lg:ps-6">
+                  {t.home.features.items
+                    .slice(i * 2, i * 2 + 2)
+                    .map((f) => (
+                      <li class="flex items-start gap-2.5 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-3.5 py-3">
+                        <Icon name="check" class="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                        <span class="text-[0.84rem] leading-snug text-[var(--color-fg)]">{f.title}</span>
+                      </li>
+                    ))}
+                </ul>
+              </div>
+            </article>
+          );
+        })
+      }
+    </div>
+  </div>
+</section>
+
+<!-- Performance targets -->
+<section class="gh-section gh-band" aria-labelledby="perf-title">
+  <div class="gh-shell">
+    <SectionHead
+      id="perf-title"
+      eyebrow={p.performance.eyebrow}
+      title={p.performance.title}
+      lead={p.performance.lead}
+      align="center"
+    />
+
+    <dl class="mx-auto mt-11 grid max-w-4xl grid-cols-2 gap-3.5 lg:grid-cols-4">
+      {
+        p.performance.items.map((item) => (
+          <div class="gh-card p-5 text-center" data-reveal>
+            <dt class="text-[0.78rem] font-semibold leading-snug text-[var(--color-fg-muted)]">{item.label}</dt>
+            <dd class="mt-2.5 font-display text-[1.6rem] font-extrabold leading-none tracking-tight text-brand-700 dark:text-brand-300">
+              {item.value}
+            </dd>
+          </div>
+        ))
+      }
+    </dl>
+  </div>
+</section>
+
+<!-- Architecture -->
+<section class="gh-section" aria-labelledby="arch-title">
+  <div class="gh-shell">
+    <SectionHead id="arch-title" eyebrow={p.architecture.eyebrow} title={p.architecture.title} align="center" />
+
+    <div class="mt-11 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        p.architecture.items.map((item, i) => (
+          <div class="gh-card gh-card-hover flex h-full flex-col p-6" data-reveal>
+            <span class="gh-icon-tile gh-icon-tile-md">
+              <Icon name={ARCH_ICONS[i]} class="h-5 w-5" />
+            </span>
+            <h3 class="mt-5 font-display text-[1rem] font-bold text-[var(--color-fg)]">{item.title}</h3>
+            <p class="mt-2 flex-1 text-[0.85rem] leading-relaxed text-[var(--color-fg-muted)]">{item.desc}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<!-- Security -->
+<section id="security" class="gh-section gh-band scroll-mt-28" aria-labelledby="sec-title">
+  <div class="gh-shell">
+    <div class="gh-split">
+      <div data-reveal>
+        <SectionHead id="sec-title" eyebrow={p.security.eyebrow} title={p.security.title} />
+        <div class="mt-6 flex items-center gap-2.5 text-[0.8rem] font-semibold text-brand-700 dark:text-brand-300">
+          <Icon name="lock" class="h-4 w-4" />
+          {t.footer.privacy}
+        </div>
+      </div>
+
+      <ul class="grid gap-3">
+        {
+          p.security.items.map((item) => (
+            <li class="gh-card flex items-start gap-3.5 p-5" data-reveal>
+              <span class="gh-icon-tile gh-icon-tile-sm shrink-0">
+                <Icon name="check" class="h-4 w-4" />
+              </span>
+              <span class="text-[0.88rem] leading-relaxed text-[var(--color-fg)]">{item}</span>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</section>
+
+<CtaBand
+  lang={lang}
+  id="platform-cta"
+  title={t.home.cta.title}
+  lead={t.home.cta.lead}
+  primaryLabel={t.home.cta.primary}
+  primaryHref={localePath(lang, 'solutions')}
+  secondaryLabel={t.home.cta.secondary}
+  note={t.home.cta.note}
+/>

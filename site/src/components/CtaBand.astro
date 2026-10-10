@@ -1,0 +1,72 @@
+---
+import Icon from './Icon.astro';
+import { getStrings, localePath } from '~/i18n';
+
+interface Props {
+  lang: string;
+  title: string;
+  lead: string;
+  primaryLabel: string;
+  primaryHref?: string;
+  secondaryLabel?: string;
+  secondaryHref?: string;
+  note?: string;
+  id?: string;
+}
+
+const {
+  lang,
+  title,
+  lead,
+  primaryLabel,
+  primaryHref,
+  secondaryLabel,
+  secondaryHref = localePath(lang, 'contact'),
+  note,
+  id,
+} = Astro.props;
+
+const t = getStrings(lang);
+const primary = primaryHref ?? localePath(lang, 'platform');
+---
+
+<section class="gh-section" aria-labelledby={id} data-reveal-root>
+  <div class="gh-shell">
+    <div class="gh-reveal" data-reveal>
+      <div
+        class="gh-aurora relative overflow-hidden rounded-3xl border border-[var(--color-line)] bg-[var(--color-surface)] px-6 py-14 text-center shadow-[var(--shadow-md)] sm:px-12 sm:py-16"
+      >
+        <div class="gh-grid-lines pointer-events-none absolute inset-0 opacity-40" aria-hidden="true"></div>
+
+        <div class="relative mx-auto max-w-2xl">
+          <span class="gh-eyebrow">{t.nav.getStarted}</span>
+          <h2 id={id} class="gh-display-3 mt-5 text-[var(--color-fg)]">{title}</h2>
+          <p class="gh-lead mx-auto mt-4 max-w-xl">{lead}</p>
+
+          <div class="mt-8 flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:items-center">
+            <a href={primary} class="gh-btn gh-btn-lg gh-btn-primary">
+              {primaryLabel}
+              <Icon name="arrow-right" class="h-4 w-4 rtl:rotate-180" />
+            </a>
+            {
+              secondaryLabel && (
+                <a href={secondaryHref} class="gh-btn gh-btn-lg gh-btn-ghost">
+                  {secondaryLabel}
+                </a>
+              )
+            }
+          </div>
+
+          {
+            note && (
+              <p class="mx-auto mt-7 flex max-w-lg items-center justify-center gap-2 text-[0.78rem] text-[var(--color-fg-subtle)]">
+                <Icon name="alert" class="h-4 w-4 shrink-0 text-urgent-500" />
+                <span>{note}</span>
+              </p>
+            )
+          }
+        </div>
+      </div>
+    </div>
+  </div>
+</section>

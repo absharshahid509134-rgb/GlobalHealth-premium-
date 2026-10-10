@@ -195,8 +195,29 @@ export const MedicinesView: React.FC<MedicinesViewProps> = ({
 
     // For Clonazepam or any medicine without marketplace listing, create a synthetic product using available data
     if (!product) {
-      // Create a synthetic PharmacyProduct to ensure workspace always opens per blueprint
-      const isRx = !medicine.overTheCounter || (medicine.prescriptionStatus && medicine.prescriptionStatus.toLowerCase().includes('rx'));
+      // Create a synthetic PharmacyProduct to ensure workspace always opens per blueprint.
+      // Every PharmacyProduct field is populated explicitly (no `as` cast) so the
+      // marketplace workspace never renders an undefined price, pack or warning.
+      const isRx = !medicine.overTheCounter || !!(medicine.prescriptionStatus && medicine.prescriptionStatus.toLowerCase().includes('rx'));
+      // `Medicine.dosageForms` is a free-text list; narrow it to the marketplace union.
+      const DOSAGE_FORMS: PharmacyProduct['dosageForm'][] = [
+        'Tablet', 'Capsule', 'Syrup', 'Topical Gel', 'Drops', 'Sachet / Powder',
+        'Liquid Solution', 'Medical Device', 'Kit / Pack', 'Cream', 'Ointment', 'Inhaler',
+      ];
+      const firstForm = String(medicine.dosageForms?.[0] ?? '').trim();
+      const dosageForm: PharmacyProduct['dosageForm'] =
+        (DOSAGE_FORMS.find((f) => f.toLowerCase() === firstForm.toLowerCase()) ??
+          (firstForm.toLowerCase().includes('syrup') ? 'Syrup'
+            : firstForm.toLowerCase().includes('capsul') ? 'Capsule'
+              : firstForm.toLowerCase().includes('drop') ? 'Drops'
+                : firstForm.toLowerCase().includes('cream') ? 'Cream'
+                  : firstForm.toLowerCase().includes('ointment') ? 'Ointment'
+                    : firstForm.toLowerCase().includes('inhal') ? 'Inhaler'
+                      : firstForm.toLowerCase().includes('gel') ? 'Topical Gel'
+                        : firstForm.toLowerCase().includes('liquid') ? 'Liquid Solution'
+                          : 'Tablet'));
+      const mrp = 120;
+      const price = 95;
       product = {
         id: `synthetic-${medicine.id}`,
         name: medicine.name,
@@ -206,21 +227,33 @@ export const MedicinesView: React.FC<MedicinesViewProps> = ({
         subCategory: medicine.category || 'Neurology',
         composition: medicine.genericName,
         strength: '0.5 mg',
-        dosageForm: medicine.dosageForms?.[0] || 'Tablet',
+        dosageForm,
         packSize: '10 Tablets',
         manufacturer: 'Verified Pharma',
-        prescriptionRequired: !!isRx,
-        rxSchedule: isRx ? 'H' : 'OTC',
-        mrp: 120,
-        price: 95,
-        discount: 20,
+        prescriptionRequired: isRx,
+        rxSchedule: isRx ? 'Schedule H' : 'OTC / Non-Scheduled',
+        mrp,
+        price,
+        discountPercent: 20,
         availability: 'in_stock',
         stockQuantity: 24,
         imageUrl: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=400',
+        imageType: dosageForm === 'Capsule' ? 'capsule' : 'tablet',
         pharmacyPartnerId: 'synthetic',
         pharmacyPartnerName: 'Verified Partner',
-        therapeuticClass: medicine.therapeuticGroup || medicine.category,
-      } as PharmacyProduct;
+        description:
+          medicine.description ??
+          medicine.whatIs ??
+          `${medicine.name} (${medicine.genericName}) — a clinician-reviewed synthetic listing for medicines that have no marketplace partner record yet.`,
+        uses: medicine.uses ?? [],
+        countryOfOrigin: 'India',
+        storage: 'Store below 25 °C in a dry place, protected from direct sunlight.',
+        warnings:
+          'This synthetic listing is for information only. Confirm strength, schedule and supply with a licensed pharmacist before use.',
+        dosageInstructions: 'Take only as directed by a qualified healthcare professional.',
+        sideEffects: medicine.sideEffects ?? [],
+        lastReviewedDate: new Date().toISOString().slice(0, 10),
+      };
     }
 
     setBuyWorkspaceMode('stock');

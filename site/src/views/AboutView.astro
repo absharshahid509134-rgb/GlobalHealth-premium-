@@ -1,0 +1,128 @@
+---
+import PageHero from '~/components/PageHero.astro';
+import SectionHead from '~/components/SectionHead.astro';
+import CtaBand from '~/components/CtaBand.astro';
+import Icon, { type IconName } from '~/components/Icon.astro';
+import { getStrings, localePath } from '~/i18n';
+
+interface Props { lang: string }
+const { lang } = Astro.props;
+const t = getStrings(lang);
+const p = t.pages.about;
+
+const MISSION_ICONS: IconName[] = ['book', 'languages', 'globe', 'shield'];
+const GOVERNANCE_ICONS: IconName[] = ['shield', 'file', 'check', 'users'];
+const NUMERIC = [12000, 190, 8, 0];
+const SUFFIX = ['+', '+', '', ''];
+const PREFIX = ['', '', '', ''];
+---
+
+<PageHero lang={lang} eyebrow={p.eyebrow} title={p.title} lead={p.lead} />
+
+<!-- Mission -->
+<section class="gh-section" aria-labelledby="mission-title">
+  <div class="gh-shell">
+    <SectionHead id="mission-title" eyebrow={p.mission.eyebrow} title={p.mission.title} align="center" />
+
+    <div class="mt-11 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {
+        p.mission.items.map((item, i) => (
+          <article class="gh-card gh-card-hover flex h-full flex-col p-6" data-reveal>
+            <span class="gh-icon-tile gh-icon-tile-md">
+              <Icon name={MISSION_ICONS[i]} class="h-5 w-5" />
+            </span>
+            <h3 class="mt-5 font-display text-[1rem] font-bold text-[var(--color-fg)]">{item.title}</h3>
+            <p class="mt-2 flex-1 text-[0.85rem] leading-relaxed text-[var(--color-fg-muted)]">{item.desc}</p>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<!-- Story: long-form, with a symmetric sticky pull-quote beside it. -->
+<section class="gh-section gh-band" aria-labelledby="story-title">
+  <div class="gh-shell">
+    <div class="gh-split gh-split-start">
+      <div data-reveal>
+        <SectionHead id="story-title" eyebrow={p.story.eyebrow} title={p.story.title} />
+      </div>
+      <div class="space-y-5">
+        {
+          p.story.paragraphs.map((para, i) => (
+            <p
+              class:list={[
+                'text-[1rem] leading-[1.75] text-[var(--color-fg-muted)]',
+                i === 0 && 'text-[1.05rem] text-[var(--color-fg)]',
+              ]}
+              data-reveal
+            >
+              {para}
+            </p>
+          ))
+        }
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Governance -->
+<section class="gh-section" aria-labelledby="governance-title">
+  <div class="gh-shell">
+    <SectionHead id="governance-title" eyebrow={p.governance.eyebrow} title={p.governance.title} align="center" />
+
+    <ul class="mx-auto mt-11 grid max-w-4xl grid-cols-1 gap-3.5 sm:grid-cols-2">
+      {
+        p.governance.items.map((item, i) => (
+          <li class="gh-card flex h-full items-start gap-4 p-5" data-reveal>
+            <span class="gh-icon-tile gh-icon-tile-sm shrink-0">
+              <Icon name={GOVERNANCE_ICONS[i]} class="h-4 w-4" />
+            </span>
+            <span>
+              <span class="block text-[0.92rem] font-bold text-[var(--color-fg)]">{item.title}</span>
+              <span class="mt-1 block text-[0.84rem] leading-relaxed text-[var(--color-fg-muted)]">{item.desc}</span>
+            </span>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</section>
+
+<!-- Numbers -->
+<section class="gh-section-sm border-y border-[var(--color-line)] bg-[var(--color-surface-2)]" aria-label={p.numbers.title}>
+  <div class="gh-shell">
+    <p class="text-center text-[0.72rem] font-bold uppercase tracking-[0.12em] text-[var(--color-fg-subtle)]">
+      {p.numbers.eyebrow} · {p.numbers.title}
+    </p>
+    <div class="mt-6 grid grid-cols-2 gap-x-4 gap-y-8 lg:grid-cols-4">
+      {
+        p.numbers.items.map((item, i) => (
+          <div class="flex flex-col items-center gap-1.5 text-center" data-reveal>
+            <span
+              class="font-display text-[clamp(1.85rem,1.3rem+2vw,2.9rem)] font-extrabold leading-none tracking-[-0.03em] text-brand-700 dark:text-brand-300"
+              data-count-to={NUMERIC[i]}
+              data-count-prefix={PREFIX[i]}
+              data-count-suffix={SUFFIX[i]}
+            >
+              {item.value}
+            </span>
+            <span class="max-w-[13rem] text-[0.82rem] leading-snug text-[var(--color-fg-muted)]">{item.label}</span>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<CtaBand
+  lang={lang}
+  id="about-cta"
+  title={t.home.cta.title}
+  lead={t.home.cta.lead}
+  primaryLabel={t.home.cta.primary}
+  primaryHref={localePath(lang, 'platform')}
+  secondaryLabel={t.pages.contact.form.title}
+  secondaryHref={localePath(lang, 'contact')}
+  note={t.home.cta.note}
+/>

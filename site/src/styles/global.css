@@ -1,0 +1,538 @@
+@import "tailwindcss";
+
+/* ==========================================================================
+   GlobalHealth design system
+   One token set drives colour, type, space, radius, elevation and motion.
+   Everything is themeable from this block — no component hard-codes a value.
+   ========================================================================== */
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* ---- Brand: "Pulse" teal — clinical trust, human warmth -------------- */
+  --color-brand-50: #e9fbf5;
+  --color-brand-100: #cdf3e6;
+  --color-brand-200: #9ae6ce;
+  --color-brand-300: #5fd2b1;
+  --color-brand-400: #2bbd97;
+  --color-brand-500: #12a47e;
+  --color-brand-600: #07856a;
+  --color-brand-700: #076a56;
+  --color-brand-800: #075445;
+  --color-brand-900: #063f35;
+  --color-brand-950: #032721;
+
+  /* ---- Accent: "Signal" indigo — intelligence, AI, precision ----------- */
+  --color-accent-50: #eef2ff;
+  --color-accent-100: #dde5ff;
+  --color-accent-200: #c0cdff;
+  --color-accent-300: #96a9ff;
+  --color-accent-400: #6f83fb;
+  --color-accent-500: #4b5ef0;
+  --color-accent-600: #3841d6;
+  --color-accent-700: #2c33ac;
+  --color-accent-800: #272d87;
+  --color-accent-900: #232a6b;
+
+  /* ---- Urgent: coral — emergencies only, never decoration ------------- */
+  --color-urgent-50: #fff1ef;
+  --color-urgent-100: #ffdfdb;
+  --color-urgent-200: #ffc2bb;
+  --color-urgent-300: #ff9c91;
+  --color-urgent-400: #ff6f61;
+  --color-urgent-500: #fb4a3b;
+  --color-urgent-600: #e22c1d;
+  --color-urgent-700: #bd1d11;
+  --color-urgent-800: #9a1c13;
+  --color-urgent-900: #7e1d15;
+
+  /* ---- Ink: cool neutral ramp ------------------------------------------ */
+  --color-ink-50: #f5f8fb;
+  --color-ink-100: #ecf1f6;
+  --color-ink-200: #dbe3ec;
+  --color-ink-300: #c0ccd9;
+  --color-ink-400: #8e9fb1;
+  --color-ink-500: #647689;
+  --color-ink-600: #4a5b6d;
+  --color-ink-700: #354453;
+  --color-ink-800: #1f2b37;
+  --color-ink-900: #131d27;
+  --color-ink-950: #0a1119;
+
+  /* ---- Semantic surfaces (flip in dark mode via the vars below) -------- */
+  --color-canvas: #ffffff;
+  --color-surface: #ffffff;
+  --color-surface-2: #f5f8fb;
+  --color-surface-3: #ecf1f6;
+  --color-line: #e2e9f0;
+  --color-line-strong: #cfdae4;
+  --color-fg: #131d27;
+  --color-fg-muted: #4a5b6d;   /* 7.1:1 on white */
+  --color-fg-subtle: #647689;  /* 4.6:1 on white */
+
+  /* ---- Typography ----------------------------------------------------- */
+  --font-display: "Outfit Variable", "Outfit", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter Variable", "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-arabic: "IBM Plex Sans Arabic", "Noto Sans Arabic", "Segoe UI", Tahoma, sans-serif;
+  --font-devanagari: "Noto Sans Devanagari", "Nirmala UI", "Kohinoor Devanagari", sans-serif;
+
+  --text-display-1: clamp(2.35rem, 1.35rem + 3.4vw, 4.15rem);
+  --text-display-2: clamp(1.9rem, 1.35rem + 2.1vw, 3.05rem);
+  --text-display-3: clamp(1.5rem, 1.22rem + 1.05vw, 2.15rem);
+  --text-title: clamp(1.2rem, 1.08rem + 0.5vw, 1.5rem);
+  --text-lead: clamp(1.02rem, 0.97rem + 0.28vw, 1.16rem);
+
+  /* ---- Geometry ------------------------------------------------------- */
+  --radius-xs: 0.5rem;
+  --radius-sm: 0.75rem;
+  --radius-md: 0.9375rem;
+  --radius-lg: 1.25rem;
+  --radius-xl: 1.75rem;
+  --radius-2xl: 2.25rem;
+
+  --container-shell: 76rem;
+  --container-prose: 44rem;
+
+  /* ---- Elevation: layered, low-contrast, never muddy ------------------ */
+  --shadow-xs: 0 1px 2px -1px rgb(10 17 25 / 0.10);
+  --shadow-sm: 0 1px 2px 0 rgb(10 17 25 / 0.04), 0 2px 6px -2px rgb(10 17 25 / 0.07);
+  --shadow-md: 0 2px 4px -2px rgb(10 17 25 / 0.05), 0 10px 24px -8px rgb(10 17 25 / 0.12);
+  --shadow-lg: 0 4px 8px -4px rgb(10 17 25 / 0.06), 0 20px 44px -12px rgb(10 17 25 / 0.18);
+  --shadow-brand: 0 10px 34px -12px rgb(7 133 106 / 0.45);
+
+  /* ---- Motion --------------------------------------------------------- */
+  --ease-out-soft: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* ==========================================================================
+   Dark mode — remap the semantic tokens, keep brand/accent/ink ramps intact
+   ========================================================================== */
+@layer theme {
+  .dark {
+    --color-canvas: #070c12;
+    --color-surface: #0c141c;
+    --color-surface-2: #111b25;
+    --color-surface-3: #18242f;
+    --color-line: #1e2c38;
+    --color-line-strong: #2b3d4b;
+    --color-fg: #e8f0f6;
+    --color-fg-muted: #a2b4c3;
+    --color-fg-subtle: #7b8fa1;
+
+    --shadow-xs: 0 1px 2px -1px rgb(0 0 0 / 0.5);
+    --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.35), 0 2px 6px -2px rgb(0 0 0 / 0.45);
+    --shadow-md: 0 2px 4px -2px rgb(0 0 0 / 0.4), 0 10px 24px -8px rgb(0 0 0 / 0.6);
+    --shadow-lg: 0 4px 8px -4px rgb(0 0 0 / 0.45), 0 20px 44px -12px rgb(0 0 0 / 0.7);
+    --shadow-brand: 0 10px 34px -12px rgb(18 164 126 / 0.4);
+
+    color-scheme: dark;
+  }
+}
+
+/* ==========================================================================
+   Base
+   ========================================================================== */
+@layer base {
+  * {
+    border-color: var(--color-line);
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+    scroll-behavior: smooth;
+    scroll-padding-top: 6.5rem;
+    background-color: var(--color-canvas);
+    color: var(--color-fg);
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-synthesis-weight: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: clip;
+  }
+
+  :lang(ar) {
+    font-family: var(--font-arabic);
+  }
+  :lang(hi) {
+    font-family: var(--font-devanagari);
+  }
+  :lang(zh) {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC",
+      var(--font-sans);
+  }
+
+  h1, h2, h3, h4 {
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: -0.022em;
+    text-wrap: balance;
+  }
+  :lang(ar) h1, :lang(ar) h2, :lang(ar) h3, :lang(ar) h4 { letter-spacing: 0; }
+  :lang(hi) h1, :lang(hi) h2, :lang(hi) h3, :lang(hi) h4 { letter-spacing: 0; line-height: 1.3; }
+
+  p { text-wrap: pretty; }
+
+  :focus-visible {
+    outline: 2px solid var(--color-brand-500);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background-color: color-mix(in oklab, var(--color-brand-400) 40%, transparent);
+    color: var(--color-fg);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+/* ==========================================================================
+   Components — one shared visual grammar for every surface
+   ========================================================================== */
+@layer components {
+  /* ---- Layout primitives ---------------------------------------------- */
+  .gh-shell {
+    width: 100%;
+    max-width: var(--container-shell);
+    margin-inline: auto;
+    padding-inline: clamp(1.15rem, 0.4rem + 2.6vw, 2.5rem);
+  }
+
+  .gh-prose {
+    max-width: var(--container-prose);
+    margin-inline: auto;
+  }
+
+  /* One vertical rhythm for every full-width band on the site. */
+  .gh-section {
+    padding-block: clamp(3.75rem, 2.2rem + 5.4vw, 7rem);
+  }
+  .gh-section-sm {
+    padding-block: clamp(2.5rem, 1.8rem + 2.6vw, 4.25rem);
+  }
+  .gh-section-flush { padding-block: 0; }
+
+  .gh-band {
+    background-color: var(--color-surface-2);
+  }
+  .gh-band-ink {
+    background-color: var(--color-ink-950);
+    color: var(--color-ink-50);
+  }
+
+  /* ---- Typography helpers --------------------------------------------- */
+  .gh-display-1 { font-size: var(--text-display-1); line-height: 1.04; }
+  .gh-display-2 { font-size: var(--text-display-2); line-height: 1.1; }
+  .gh-display-3 { font-size: var(--text-display-3); line-height: 1.16; }
+  .gh-title { font-size: var(--text-title); line-height: 1.28; }
+  .gh-lead {
+    font-size: var(--text-lead);
+    line-height: 1.68;
+    color: var(--color-fg-muted);
+  }
+  .gh-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in oklab, var(--color-brand-300) 55%, transparent);
+    background-color: color-mix(in oklab, var(--color-brand-50) 80%, transparent);
+    padding: 0.3rem 0.8rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: var(--color-brand-800);
+  }
+  .dark .gh-eyebrow {
+    background-color: color-mix(in oklab, var(--color-brand-500) 14%, transparent);
+    border-color: color-mix(in oklab, var(--color-brand-400) 35%, transparent);
+    color: var(--color-brand-200);
+  }
+  :lang(ar) .gh-eyebrow { letter-spacing: 0; }
+  :lang(hi) .gh-eyebrow { letter-spacing: 0; text-transform: none; font-size: 0.78rem; }
+
+  /* ---- Buttons -------------------------------------------------------- */
+  .gh-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.55rem;
+    border-radius: var(--radius-sm);
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    transition: transform 0.18s var(--ease-out-soft), background-color 0.18s,
+      border-color 0.18s, box-shadow 0.18s, color 0.18s;
+    cursor: pointer;
+    user-select: none;
+  }
+  .gh-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+  .gh-btn:active:not(:disabled) { transform: translateY(1px); }
+
+  .gh-btn-md { padding: 0.7rem 1.15rem; font-size: 0.925rem; }
+  .gh-btn-lg { padding: 0.95rem 1.6rem; font-size: 1rem; }
+  .gh-btn-sm { padding: 0.5rem 0.85rem; font-size: 0.83rem; }
+
+  /* White on the 600→800 ramps clears 4.5:1 at every point of the gradient;
+     the lighter 400/500 ramps only do so above 16px bold. */
+  .gh-btn-primary {
+    background-image: linear-gradient(135deg, var(--color-brand-600), var(--color-brand-800));
+    color: #fff;
+    box-shadow: var(--shadow-brand);
+  }
+  .gh-btn-primary:hover:not(:disabled) {
+    background-image: linear-gradient(135deg, var(--color-brand-500), var(--color-brand-700));
+  }
+
+  .gh-btn-accent {
+    background-image: linear-gradient(135deg, var(--color-accent-600), var(--color-accent-800));
+    color: #fff;
+    box-shadow: 0 10px 34px -12px rgb(59 70 230 / 0.5);
+  }
+  .gh-btn-accent:hover:not(:disabled) {
+    background-image: linear-gradient(135deg, var(--color-accent-500), var(--color-accent-700));
+  }
+
+  .gh-btn-ghost {
+    border: 1px solid var(--color-line-strong);
+    background-color: var(--color-surface);
+    color: var(--color-fg);
+  }
+  .gh-btn-ghost:hover:not(:disabled) {
+    background-color: var(--color-surface-2);
+    border-color: var(--color-brand-300);
+  }
+
+  .gh-btn-quiet {
+    color: var(--color-fg-muted);
+  }
+  .gh-btn-quiet:hover:not(:disabled) {
+    color: var(--color-fg);
+    background-color: var(--color-surface-2);
+  }
+
+  /* ---- Surfaces ------------------------------------------------------- */
+  .gh-card {
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--color-line);
+    background-color: var(--color-surface);
+    box-shadow: var(--shadow-sm);
+  }
+  .gh-card-hover {
+    transition: transform 0.22s var(--ease-out-soft), box-shadow 0.22s,
+      border-color 0.22s;
+  }
+  .gh-card-hover:hover {
+    transform: translateY(-3px);
+    border-color: color-mix(in oklab, var(--color-brand-400) 55%, var(--color-line));
+    box-shadow: var(--shadow-md);
+  }
+
+  .gh-icon-tile {
+    display: grid;
+    place-items: center;
+    border-radius: var(--radius-md);
+    background-image: linear-gradient(140deg, var(--color-brand-50), var(--color-brand-100));
+    color: var(--color-brand-700);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-brand-300) 35%, transparent);
+  }
+  .dark .gh-icon-tile {
+    background-image: linear-gradient(140deg, color-mix(in oklab, var(--color-brand-500) 22%, transparent), color-mix(in oklab, var(--color-accent-500) 16%, transparent));
+    color: var(--color-brand-200);
+    box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-brand-400) 26%, transparent);
+  }
+  .gh-icon-tile-sm { width: 2.75rem; height: 2.75rem; }
+  .gh-icon-tile-md { width: 3.25rem; height: 3.25rem; }
+  .gh-icon-tile-lg { width: 3.75rem; height: 3.75rem; }
+
+  .gh-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 9999px;
+    border: 1px solid var(--color-line);
+    background-color: var(--color-surface);
+    padding: 0.3rem 0.75rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-fg-muted);
+  }
+  .gh-chip-on {
+    border-color: var(--color-brand-500);
+    background-color: var(--color-brand-600);
+    color: #fff;
+  }
+
+  /* ---- Symmetric grids (equal cells, equal gaps) ---------------------- */
+  .gh-grid { display: grid; gap: clamp(1rem, 0.6rem + 1vw, 1.5rem); }
+  .gh-grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .gh-grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .gh-grid-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .gh-grid-auto { grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
+
+  /* Split layout that stays mathematically mirrored: 1fr 1fr */
+  .gh-split {
+    display: grid;
+    gap: clamp(2rem, 1rem + 4vw, 4.5rem);
+    align-items: center;
+    grid-template-columns: 1fr;
+  }
+  @media (min-width: 900px) {
+    .gh-split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  .gh-split-start { align-items: start; }
+
+  /* ---- Section heading (centered or split, identical metrics) --------- */
+  .gh-head { max-width: 46rem; }
+  .gh-head-center { margin-inline: auto; text-align: center; }
+  .gh-head-center .gh-eyebrow { justify-content: center; }
+  .gh-head-center .gh-lead { margin-inline: auto; }
+
+  .gh-rule {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--color-line-strong), transparent);
+    border: 0;
+  }
+
+  /* ---- Text helpers --------------------------------------------------- */
+  .gh-muted { color: var(--color-fg-muted); }
+  .gh-subtle { color: var(--color-fg-subtle); }
+  .gh-gradient-text {
+    background-image: linear-gradient(120deg, var(--color-brand-500), var(--color-accent-500) 92%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .dark .gh-gradient-text {
+    background-image: linear-gradient(120deg, var(--color-brand-300), var(--color-accent-300) 92%);
+  }
+
+  /* ---- Focus-visible skip link --------------------------------------- */
+  .gh-skip {
+    position: fixed;
+    inset-inline-start: 1rem;
+    top: 1rem;
+    z-index: 100;
+    transform: translateY(-160%);
+    border-radius: var(--radius-sm);
+    background-color: var(--color-brand-600);
+    color: #fff;
+    padding: 0.65rem 1.1rem;
+    font-weight: 600;
+    box-shadow: var(--shadow-lg);
+    transition: transform 0.2s var(--ease-out-soft);
+  }
+  .gh-skip:focus { transform: translateY(0); }
+
+  /* ---- Scroll reveal (opacity is animated in CSS only — no FOUC) ------ */
+  .gh-reveal {
+    opacity: 0;
+    transform: translateY(18px);
+    transition: opacity 0.6s var(--ease-out-soft), transform 0.6s var(--ease-out-soft);
+    transition-delay: var(--reveal-delay, 0ms);
+  }
+  .gh-reveal.is-in { opacity: 1; transform: none; }
+  @media (prefers-reduced-motion: reduce) {
+    .gh-reveal { opacity: 1; transform: none; }
+  }
+
+  /* ---- Link underline ------------------------------------------------- */
+  .gh-link {
+    color: var(--color-brand-700);
+    font-weight: 600;
+    text-underline-offset: 3px;
+    text-decoration-line: underline;
+    text-decoration-color: color-mix(in oklab, var(--color-brand-400) 60%, transparent);
+    transition: color 0.15s, text-decoration-color 0.15s;
+  }
+  .gh-link:hover { color: var(--color-brand-800); text-decoration-color: currentColor; }
+  .dark .gh-link { color: var(--color-brand-300); }
+  .dark .gh-link:hover { color: var(--color-brand-200); }
+}
+
+/* ==========================================================================
+   Utilities
+   ========================================================================== */
+@utility gh-mx-auto-shell { margin-inline: auto; }
+
+/* Decorative ambient background used behind hero / CTA bands. */
+@utility gh-aurora {
+  background-image:
+    radial-gradient(60rem 30rem at 12% -10%, color-mix(in oklab, var(--color-brand-300) 28%, transparent), transparent 62%),
+    radial-gradient(48rem 28rem at 92% 4%, color-mix(in oklab, var(--color-accent-300) 26%, transparent), transparent 60%),
+    radial-gradient(40rem 26rem at 50% 108%, color-mix(in oklab, var(--color-brand-200) 22%, transparent), transparent 65%);
+}
+
+/* Fine dotted grid that reads as "data", not decoration. */
+@utility gh-grid-lines {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--color-line-strong) 60%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--color-line-strong) 60%, transparent) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(70% 60% at 50% 30%, #000 20%, transparent 78%);
+}
+
+/* Hide scrollbars on horizontal rails (still swipeable). */
+@utility gh-no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar { display: none; }
+}
+
+/* Logical-property helpers so RTL mirrors automatically. */
+@utility gh-flip-rtl {
+  &:where([dir="rtl"]) & { transform: scaleX(-1); }
+}
+
+/* ==========================================================================
+   Keyframes
+   ========================================================================== */
+@keyframes gh-pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.45; transform: scale(0.82); }
+}
+@keyframes gh-float-slow {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-8px); }
+}
+@keyframes gh-dash {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes gh-sheen {
+  0% { transform: translateX(-120%) skewX(-18deg); }
+  100% { transform: translateX(240%) skewX(-18deg); }
+}
+@keyframes gh-spin-slow {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .gh-anim-pulse-dot { animation: gh-pulse-dot 2.4s ease-in-out infinite; }
+  .gh-anim-float { animation: gh-float-slow 7s ease-in-out infinite; }
+  .gh-anim-spin-slow { animation: gh-spin-slow 26s linear infinite; }
+}
+
+/* ==========================================================================
+   Print
+   ========================================================================== */
+@media print {
+  .gh-no-print, header, footer, nav { display: none !important; }
+  body { background: #fff !important; color: #000 !important; }
+  .gh-shell { max-width: 100% !important; padding: 0 !important; }
+  a { color: #000 !important; }
+  * { box-shadow: none !important; }
+}

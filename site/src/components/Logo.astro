@@ -1,0 +1,27 @@
+---
+/** GlobalHealth wordmark + glyph. Sized by the caller through `class`. */
+interface Props {
+  class?: string;
+  /** Render only the glyph (no wordmark). */
+  markOnly?: boolean;
+}
+const { class: className = 'h-8 w-auto', markOnly = false } = Astro.props;
+---
+
+<span class:list={['inline-flex items-center gap-2.5', className]}>
+  <span
+    class="grid h-9 w-9 shrink-0 place-items-center rounded-[0.7rem] text-white shadow-[0_6px_16px_-6px_rgb(7_133_106/0.75)]"
+    style="background-image:linear-gradient(140deg,var(--color-brand-400),var(--color-brand-700))"
+  >
+    <svg viewBox="0 0 24 24" class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 4.6v14.8M4.6 12h14.8" />
+    </svg>
+  </span>
+  {
+    !markOnly && (
+      <span class="font-display text-[1.15rem] font-extrabold leading-none tracking-[-0.03em] text-[var(--color-fg)]">
+        Global<span class="text-brand-700 dark:text-brand-400">Health</span>
+      </span>
+    )
+  }
+</span>

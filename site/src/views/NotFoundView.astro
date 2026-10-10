@@ -1,0 +1,64 @@
+---
+import Icon from '~/components/Icon.astro';
+import { getStrings, LOCALES, localePath } from '~/i18n';
+
+interface Props { lang: string }
+const { lang } = Astro.props;
+const t = getStrings(lang);
+const n = t.pages.notFound;
+---
+
+<section class="gh-aurora relative flex min-h-[70vh] items-center overflow-hidden" aria-labelledby="nf-title">
+  <div class="gh-grid-lines pointer-events-none absolute inset-0 opacity-30" aria-hidden="true"></div>
+
+  <div class="gh-shell relative py-20 text-center">
+    <p class="gh-display-1 gh-gradient-text font-extrabold leading-none" aria-hidden="true">{n.code}</p>
+    <h1 id="nf-title" class="gh-display-3 mt-6 text-[var(--color-fg)]">{n.title}</h1>
+    <p class="gh-lead mx-auto mt-4 max-w-xl">{n.lead}</p>
+
+    <div class="mt-9 flex flex-col items-stretch justify-center gap-3 sm:flex-row">
+      <a href={localePath(lang)} class="gh-btn gh-btn-lg gh-btn-primary">
+        {n.primary}
+        <Icon name="arrow-right" class="h-4 w-4 rtl:rotate-180" />
+      </a>
+      <button type="button" class="gh-btn gh-btn-lg gh-btn-ghost" data-open-palette>
+        <Icon name="search" class="h-4 w-4" />
+        {n.secondary}
+      </button>
+    </div>
+
+    <div class="mx-auto mt-12 max-w-md rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] p-6">
+      <p class="text-[0.88rem] font-bold text-[var(--color-fg)]">{n.help}</p>
+      <p class="mt-1.5 text-[0.84rem] leading-relaxed text-[var(--color-fg-muted)]">{n.helpText}</p>
+      <a href={localePath(lang, 'contact')} class="gh-link mt-3 inline-block text-[0.85rem]">{t.nav.contact}</a>
+    </div>
+
+    <!--
+      A static host serves a single 404 document, so this page cannot know
+      which locale the broken URL belonged to. Offering every language here
+      is the fastest way back for a visitor who followed a localised link.
+    -->
+    <nav class="mx-auto mt-10 max-w-lg" aria-label={t.footer.languageHeading}>
+      <p class="text-[0.72rem] font-bold uppercase tracking-[0.12em] text-[var(--color-fg-subtle)]">
+        {t.footer.languageHeading}
+      </p>
+      <ul class="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+        {
+          LOCALES.map((l) => (
+            <li>
+              <a
+                href={localePath(l.code)}
+                lang={l.code}
+                hreflang={l.code}
+                class="gh-chip !text-[0.75rem] transition hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300"
+              >
+                <span aria-hidden="true">{l.flag}</span>
+                {l.nativeName}
+              </a>
+            </li>
+          ))
+        }
+      </ul>
+    </nav>
+  </div>
+</section>

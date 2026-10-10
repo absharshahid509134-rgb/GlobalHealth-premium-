@@ -1,0 +1,52 @@
+---
+import Icon, { type IconName } from '../Icon.astro';
+import SectionHead from '../SectionHead.astro';
+import { getStrings } from '~/i18n';
+
+interface Props {
+  lang: string;
+}
+
+const { lang } = Astro.props;
+const t = getStrings(lang);
+
+const ICONS: IconName[] = ['zap', 'languages', 'stethoscope', 'globe', 'phone', 'shield'];
+---
+
+<!-- Dark band: the engineering and worldwide commitments, six-up. -->
+<section id="features" class="gh-band-ink gh-section relative overflow-hidden" aria-labelledby="features-title">
+  <div
+    class="pointer-events-none absolute inset-0 opacity-[0.16]"
+    style="background-image:radial-gradient(42rem 26rem at 12% 0%,var(--color-brand-400),transparent 62%),radial-gradient(36rem 24rem at 88% 12%,var(--color-accent-400),transparent 60%)"
+    aria-hidden="true"
+  >
+  </div>
+
+  <div class="gh-shell relative">
+    <SectionHead
+      id="features-title"
+      eyebrow={t.home.features.eyebrow}
+      title={t.home.features.title}
+      lead={t.home.features.lead}
+      align="center"
+      tone="onDark"
+    />
+
+    <div class="mt-12 grid grid-cols-2 gap-3.5 lg:grid-cols-3">
+      {
+        t.home.features.items.map((item, i) => (
+          <div
+            class="group flex h-full flex-col rounded-2xl border border-white/10 bg-white/[0.045] p-5 transition duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.08] sm:p-6"
+            data-reveal
+          >
+            <span class="grid h-11 w-11 place-items-center rounded-xl bg-white/10 text-brand-300 transition-colors group-hover:bg-white/15">
+              <Icon name={ICONS[i]} class="h-5 w-5" />
+            </span>
+            <h3 class="mt-4 text-[0.95rem] font-bold leading-snug text-white">{item.title}</h3>
+            <p class="mt-2 flex-1 text-[0.84rem] leading-relaxed text-white/65">{item.desc}</p>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

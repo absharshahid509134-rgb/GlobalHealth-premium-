@@ -1,0 +1,149 @@
+---
+import PageHero from '~/components/PageHero.astro';
+import SectionHead from '~/components/SectionHead.astro';
+import CtaBand from '~/components/CtaBand.astro';
+import Icon, { type IconName } from '~/components/Icon.astro';
+import { getStrings, localePath } from '~/i18n';
+
+interface Props { lang: string }
+const { lang } = Astro.props;
+const t = getStrings(lang);
+const p = t.pages.solutions;
+
+const PERSONA_ICONS: IconName[] = ['users', 'stethoscope', 'building', 'store'];
+---
+
+<PageHero lang={lang} eyebrow={p.eyebrow} title={p.title} lead={p.lead} />
+
+<!-- One symmetric block per audience. Text and checklist are a 1fr 1fr split
+     so every row of the page has the same optical weight. -->
+<section class="gh-section">
+  <div class="gh-shell">
+    <div class="space-y-4">
+      {
+        p.personas.map((persona, i) => (
+          <article id={persona.key} class="gh-card scroll-mt-28 overflow-hidden" data-reveal>
+            <div class="grid lg:grid-cols-2">
+              {/* Text half */}
+              <div class="p-6 sm:p-8 lg:p-10">
+                <div class="flex items-center gap-3">
+                  <span class="gh-icon-tile gh-icon-tile-md">
+                    <Icon name={PERSONA_ICONS[i]} class="h-5 w-5" />
+                  </span>
+                  <span class="gh-chip !text-[0.7rem]">{persona.label}</span>
+                </div>
+                <h2 class="mt-5 font-display text-[clamp(1.25rem,1.1rem+0.7vw,1.6rem)] font-bold text-[var(--color-fg)]">
+                  {persona.title}
+                </h2>
+                <p class="mt-3 text-[0.95rem] leading-relaxed text-[var(--color-fg-muted)]">{persona.desc}</p>
+              </div>
+
+              {/* Checklist half — tinted so the split reads instantly */}
+              <div class="border-t border-[var(--color-line)] bg-[var(--color-surface-2)] p-6 sm:p-8 lg:border-s lg:border-t-0 lg:p-10">
+                <ul class="grid gap-2.5">
+                  {persona.points.map((point) => (
+                    <li class="flex items-start gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3">
+                      <Icon name="check" class="mt-0.5 h-4 w-4 shrink-0 text-brand-500" />
+                      <span class="text-[0.88rem] leading-snug text-[var(--color-fg)]">{point}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </article>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<!-- Plans: three symmetric tiers drawn from the same catalogue the page
+     already uses, so every label is translated and nothing is invented. -->
+<section class="gh-section gh-band" aria-labelledby="plans-title">
+  <div class="gh-shell">
+    <SectionHead
+      id="plans-title"
+      eyebrow={t.common.recommended}
+      title={t.pages.solutions.title}
+      lead={t.pages.solutions.lead}
+      align="center"
+    />
+
+    <div class="mt-11 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      {
+        [
+          {
+            name: t.common.free,
+            price: t.common.free,
+            featured: false,
+            items: [
+              t.home.faq.items[1].a,
+              t.home.faq.items[4].a,
+              t.home.faq.items[5].a,
+            ],
+          },
+          {
+            name: p.personas[0].label,
+            price: t.common.free,
+            featured: true,
+            items: p.personas[0].points,
+          },
+          {
+            name: p.personas[2].label,
+            price: t.pages.contact.channels[2].value,
+            featured: false,
+            items: p.personas[2].points,
+          },
+        ].map((plan) => (
+          <div
+            class:list={[
+              'flex h-full flex-col rounded-2xl border p-6 transition duration-200',
+              plan.featured
+                ? 'border-brand-400 bg-[var(--color-surface)] shadow-[var(--shadow-md)] ring-1 ring-brand-200 dark:ring-brand-500/25'
+                : 'border-[var(--color-line)] bg-[var(--color-surface)] shadow-[var(--shadow-xs)]',
+            ]}
+            data-reveal
+          >
+            <div class="flex items-center justify-between gap-3">
+              <h3 class="font-display text-[1.05rem] font-bold text-[var(--color-fg)]">{plan.name}</h3>
+              {plan.featured && <span class="gh-chip gh-chip-on !text-[0.65rem]">{t.common.popular}</span>}
+            </div>
+            <p class="mt-3 truncate font-display text-[1.35rem] font-extrabold leading-none text-brand-700 dark:text-brand-300">
+              {plan.price}
+            </p>
+            <ul class="mt-5 grid gap-2.5">
+              {plan.items.map((f) => (
+                <li class="flex items-start gap-2.5 text-[0.82rem] leading-snug text-[var(--color-fg-muted)]">
+                  <Icon name="check" class="mt-0.5 h-3.5 w-3.5 shrink-0 text-brand-500" />
+                  <span>{f}</span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href={localePath(lang, 'contact')}
+              class:list={[
+                'gh-btn gh-btn-md mt-6 w-full',
+                plan.featured ? 'gh-btn-primary' : 'gh-btn-ghost',
+              ]}
+            >
+              {t.nav.getStarted}
+              <Icon name="arrow-right" class="h-4 w-4 rtl:rotate-180" />
+            </a>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>
+
+<CtaBand
+  lang={lang}
+  id="solutions-cta"
+  title={p.cta.title}
+  lead={p.cta.lead}
+  primaryLabel={p.cta.primary}
+  primaryHref={localePath(lang, 'contact')}
+  secondaryLabel={p.cta.secondary}
+  secondaryHref={localePath(lang, 'about')}
+  note={t.home.cta.note}
+/>

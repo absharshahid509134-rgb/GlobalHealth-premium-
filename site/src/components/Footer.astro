@@ -1,0 +1,139 @@
+---
+import Icon from './Icon.astro';
+import Logo from './Logo.astro';
+import { getStrings, LOCALES, localePath } from '~/i18n';
+
+interface Props {
+  lang: string;
+  year: number;
+}
+
+const { lang, year } = Astro.props;
+const t = getStrings(lang);
+
+const explore = [
+  { label: t.nav.platform, href: localePath(lang, 'platform') },
+  { label: t.nav.solutions, href: localePath(lang, 'solutions') },
+  { label: t.nav.global, href: localePath(lang, 'global') },
+  { label: t.home.modules.items[4].title, href: localePath(lang, 'platform') + '#ai' },
+];
+
+const company = [
+  { label: t.nav.about, href: localePath(lang, 'about') },
+  { label: t.nav.contact, href: localePath(lang, 'contact') },
+  { label: t.pages.contact.channels[2].title, href: localePath(lang, 'contact') },
+  { label: t.pages.contact.channels[3].title, href: localePath(lang, 'contact') },
+];
+
+const legal = [
+  { label: t.footer.privacy, href: localePath(lang, 'privacy') },
+  { label: t.footer.terms, href: localePath(lang, 'terms') },
+  { label: t.footer.legal, href: localePath(lang, 'privacy') },
+  { label: t.pages.contact.accessibility.title, href: localePath(lang, 'contact') + '#accessibility' },
+];
+---
+
+<footer class="gh-no-print mt-auto border-t border-[var(--color-line)] bg-[var(--color-surface-2)]">
+  <div class="gh-shell py-14 sm:py-16">
+    <!-- Emergency strip: repeated at the end of the page on purpose. -->
+    <a
+      href={localePath(lang, 'global') + '#emergency'}
+      class="gh-card mb-12 flex flex-col items-center gap-3 px-6 py-6 text-center transition duration-200 hover:-translate-y-0.5 hover:border-urgent-300 hover:shadow-[var(--shadow-md)] sm:flex-row sm:justify-between sm:text-start"
+    >
+      <span class="flex items-center gap-3.5">
+        <span class="gh-icon-tile gh-icon-tile-md !bg-urgent-50 !text-urgent-600 dark:!bg-urgent-500/15 dark:!text-urgent-400">
+          <Icon name="phone" class="h-5 w-5" />
+        </span>
+        <span>
+          <span class="block font-display text-[0.98rem] font-bold text-[var(--color-fg)]">{t.pages.global.emergency.title}</span>
+          <span class="mt-0.5 block text-[0.82rem] text-[var(--color-fg-muted)]">{t.pages.global.emergency.lead}</span>
+        </span>
+      </span>
+      <span class="gh-btn gh-btn-md gh-btn-ghost shrink-0">
+        {t.common.learnMore}
+        <Icon name="arrow-right" class="h-4 w-4 rtl:rotate-180" />
+      </span>
+    </a>
+
+    <!-- Four equal columns + brand block -->
+    <div class="grid gap-10 lg:grid-cols-[1.4fr_repeat(4,minmax(0,1fr))]">
+      <div class="max-w-xs">
+        <Logo />
+        <p class="mt-4 text-[0.9rem] leading-relaxed text-[var(--color-fg-muted)]">{t.site.description}</p>
+
+        <div class="mt-5 flex flex-wrap items-center gap-2">
+          <span class="gh-chip !text-[0.72rem]">
+            <span class="gh-anim-pulse-dot inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true"></span>
+            {t.footer.status}
+          </span>
+        </div>
+      </div>
+
+      <nav aria-label={t.a11y.footerNav}>
+        <h2 class="text-[0.72rem] font-bold uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]">{t.footer.explore}</h2>
+        <ul class="mt-4 flex flex-col gap-2.5">
+          {explore.map((l) => (
+            <li><a href={l.href} class="text-[0.9rem] text-[var(--color-fg-muted)] transition-colors hover:text-brand-700 dark:hover:text-brand-300">{l.label}</a></li>
+          ))}
+        </ul>
+      </nav>
+
+      <nav aria-label={t.a11y.footerNav}>
+        <h2 class="text-[0.72rem] font-bold uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]">{t.footer.company}</h2>
+        <ul class="mt-4 flex flex-col gap-2.5">
+          {company.map((l) => (
+            <li><a href={l.href} class="text-[0.9rem] text-[var(--color-fg-muted)] transition-colors hover:text-brand-700 dark:hover:text-brand-300">{l.label}</a></li>
+          ))}
+        </ul>
+      </nav>
+
+      <nav aria-label={t.a11y.footerNav}>
+        <h2 class="text-[0.72rem] font-bold uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]">{t.footer.legal}</h2>
+        <ul class="mt-4 flex flex-col gap-2.5">
+          {legal.map((l) => (
+            <li><a href={l.href} class="text-[0.9rem] text-[var(--color-fg-muted)] transition-colors hover:text-brand-700 dark:hover:text-brand-300">{l.label}</a></li>
+          ))}
+        </ul>
+      </nav>
+
+      <div>
+        <h2 class="text-[0.72rem] font-bold uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]">{t.footer.languageHeading}</h2>
+        <ul class="mt-4 flex flex-wrap gap-1.5">
+          {LOCALES.map((l) => (
+            <li>
+              <a
+                href={localePath(l.code)}
+                lang={l.code}
+                class:list={[
+                  'inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 text-[0.75rem] font-semibold transition-colors',
+                  l.code === lang
+                    ? 'border-brand-500 bg-brand-600 text-white'
+                    : 'border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-fg-muted)] hover:border-brand-300 hover:text-brand-700 dark:hover:text-brand-300',
+                ]}
+                aria-current={l.code === lang ? 'true' : undefined}
+              >
+                <span aria-hidden="true">{l.flag}</span>
+                {l.code.toUpperCase()}
+              </a>
+            </li>
+          ))}
+        </ul>
+        <p class="mt-4 text-[0.78rem] leading-relaxed text-[var(--color-fg-subtle)]">{t.footer.builtWith}</p>
+      </div>
+    </div>
+
+    <!-- Legal row -->
+    <div class="mt-12 border-t border-[var(--color-line)] pt-7">
+      <p class="max-w-4xl text-[0.8rem] leading-relaxed text-[var(--color-fg-subtle)]">{t.footer.disclaimer}</p>
+      <div class="mt-5 flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center">
+        <p class="text-[0.82rem] text-[var(--color-fg-subtle)]">{t.footer.rights.replace('{year}', String(year))}</p>
+        <div class="flex items-center gap-4">
+          <a href="#main" class="gh-btn gh-btn-sm gh-btn-quiet" data-back-to-top>
+            {t.a11y.backToTop}
+            <Icon name="arrow-up" class="h-4 w-4" />
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+</footer>

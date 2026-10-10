@@ -1,0 +1,30 @@
+{
+  "name": "globalhealth-web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GlobalHealth — a fast, accessible, worldwide public health platform website.",
+  "scripts": {
+    "dev": "astro dev --host 0.0.0.0 --port 4321",
+    "start": "astro dev --host 0.0.0.0 --port 4321",
+    "build": "astro build",
+    "preview": "astro preview --host 0.0.0.0 --port 4321",
+    "check": "astro check",
+    "verify": "node scripts/verify.mjs",
+    "audit": "npm run check && npm run build && node scripts/verify.mjs"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.3.0",
+    "@fontsource-variable/outfit": "^5.3.0",
+    "@fontsource/ibm-plex-sans-arabic": "^5.3.0",
+    "@fontsource/noto-sans-devanagari": "^5.3.0",
+    "astro": "^5.14.1"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.10",
+    "@tailwindcss/vite": "^4.1.14",
+    "sharp": "^0.35.5",
+    "tailwindcss": "^4.1.14",
+    "typescript": "~5.8.2"
+  }
+}

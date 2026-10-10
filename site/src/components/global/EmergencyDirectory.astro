@@ -1,0 +1,169 @@
+---
+import Icon from '../Icon.astro';
+import SectionHead from '../SectionHead.astro';
+import { getStrings } from '~/i18n';
+import { localisedEmergency, serviceLabels } from '~/data/emergency';
+
+interface ServiceRow {
+  label: string;
+  value: string;
+}
+
+interface Props { lang: string }
+const { lang } = Astro.props;
+const t = getStrings(lang);
+const e = t.pages.global.emergency;
+
+/** The directory is rendered server-side so it is complete without JavaScript. */
+const grouped = localisedEmergency(lang);
+const services = serviceLabels(lang);
+
+---
+
+<section id="emergency" class="gh-section scroll-mt-24" aria-labelledby="emergency-title">
+  <div class="gh-shell">
+    <SectionHead
+      id="emergency-title"
+      eyebrow={e.eyebrow}
+      title={e.title}
+      lead={e.lead}
+      align="center"
+    />
+
+    <!-- Progressive enhancement: the search box filters the table below.
+         Without JavaScript the full directory is still rendered and readable. -->
+    <div class="mx-auto mt-10 max-w-xl" data-emergency-search-root>
+      <div class="relative flex items-center gap-2.5 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 shadow-[var(--shadow-xs)]">
+        <Icon name="search" class="h-4 w-4 shrink-0 text-[var(--color-fg-subtle)]" />
+        <input
+          type="search"
+          class="w-full bg-transparent text-[0.9rem] outline-none placeholder:text-[var(--color-fg-subtle)]"
+          placeholder={e.searchPlaceholder}
+          aria-label={e.searchLabel}
+          autocomplete="off"
+          data-emergency-input
+        />
+        <button
+          type="button"
+          class="hidden"
+          data-emergency-clear
+          aria-label={t.common.clear}
+        >
+          <Icon name="close" class="h-4 w-4 text-[var(--color-fg-subtle)]" />
+        </button>
+      </div>
+      <p class="mt-2 hidden text-[0.78rem] text-[var(--color-fg-subtle)]" data-emergency-empty>
+        {e.empty}
+      </p>
+    </div>
+
+    <div class="mt-9 space-y-8" data-emergency-list>
+      {
+        grouped.map((group) => (
+          <section data-region={group.region}>
+            <h3 class="flex items-center gap-2.5 font-display text-[0.8rem] font-bold uppercase tracking-[0.1em] text-[var(--color-fg-subtle)]">
+              <Icon name="globe" class="h-4 w-4" />
+              {group.region}
+              <span class="rounded-full bg-[var(--color-surface-3)] px-2 py-0.5 text-[0.68rem] font-bold text-[var(--color-fg-muted)]">
+                {group.entries.length}
+              </span>
+            </h3>
+
+            <ul class="mt-3.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+              {group.entries.map((entry) => {
+                // The general number is the call button; only the numbers
+                // that actually differ from it earn a row in the detail list.
+                const rows: ServiceRow[] = [
+                  ...(entry.ambulance && entry.ambulance !== entry.general
+                    ? [{ label: services.ambulance, value: entry.ambulance }]
+                    : []),
+                  ...(entry.police && entry.police !== entry.general
+                    ? [{ label: services.police, value: entry.police }]
+                    : []),
+                  ...(entry.fire && entry.fire !== entry.general
+                    ? [{ label: services.fire, value: entry.fire }]
+                    : []),
+                ];
+
+                return (
+                  <li
+                    class="gh-card flex flex-col gap-3 p-4"
+                    data-country={entry.search}
+                  >
+                    <div class="flex items-start justify-between gap-3">
+                      <p class="text-[0.9rem] font-bold text-[var(--color-fg)]">{entry.label}</p>
+                      <a
+                        href={`tel:${entry.general.replace(/[^\d+]/g, '')}`}
+                        class="gh-btn gh-btn-sm gh-btn-primary shrink-0 !px-2.5 !py-1 !text-[0.72rem]"
+                        aria-label={`${e.callNow} ${entry.general} — ${entry.label}`}
+                      >
+                        <Icon name="phone" class="h-3.5 w-3.5" />
+                        {entry.general}
+                      </a>
+                    </div>
+
+                    {rows.length > 0 && (
+                      <dl class="grid grid-cols-2 gap-x-3 gap-y-1.5">
+                        {rows.map((row) => (
+                          <div class="flex items-baseline justify-between gap-2 border-t border-[var(--color-line)] pt-1.5">
+                            <dt class="text-[0.7rem] uppercase tracking-wide text-[var(--color-fg-subtle)]">{row.label}</dt>
+                            <dd class="font-display text-[0.85rem] font-bold text-[var(--color-fg)]">{row.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
+        ))
+      }
+    </div>
+
+    <p class="mx-auto mt-8 max-w-3xl rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-2)] px-5 py-4 text-center text-[0.8rem] leading-relaxed text-[var(--color-fg-muted)]">
+      {e.note}
+      <a href={`mailto:clinical@globalhealth.health?subject=${encodeURIComponent(e.report)}`} class="gh-link ms-1">
+        {e.report}
+      </a>
+    </p>
+  </div>
+</section>
+
+<script>
+  const root = document.querySelector<HTMLElement>('[data-emergency-search-root]');
+  if (root) {
+    const input = root.querySelector<HTMLInputElement>('[data-emergency-input]')!;
+    const clear = root.querySelector<HTMLButtonElement>('[data-emergency-clear]')!;
+    const empty = root.querySelector<HTMLElement>('[data-emergency-empty]')!;
+    const regions = Array.from(document.querySelectorAll<HTMLElement>('[data-region]'));
+    const cards = Array.from(document.querySelectorAll<HTMLElement>('[data-country]'));
+
+    const apply = () => {
+      const q = input.value.trim().toLowerCase();
+      clear.classList.toggle('hidden', q.length === 0);
+      empty.classList.toggle('hidden', q.length > 0);
+
+      let visible = 0;
+      for (const card of cards) {
+        const match = !q || (card.dataset.country ?? '').includes(q);
+        card.classList.toggle('hidden', !match);
+        if (match) visible++;
+      }
+      for (const region of regions) {
+        const any = Array.from(region.querySelectorAll<HTMLElement>('[data-country]')).some(
+          (c) => !c.classList.contains('hidden')
+        );
+        region.classList.toggle('hidden', !any);
+      }
+      empty.classList.toggle('hidden', visible > 0);
+    };
+
+    input.addEventListener('input', apply);
+    clear.addEventListener('click', () => {
+      input.value = '';
+      apply();
+      input.focus();
+    });
+  }
+</script>

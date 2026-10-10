@@ -1,0 +1,100 @@
+---
+import Icon from './Icon.astro';
+import Logo from './Logo.astro';
+import { getStrings, localePath } from '~/i18n';
+import { PAGES, pageLabel } from '~/data/pages';
+
+interface Props {
+  lang: string;
+  currentPath: string;
+}
+
+const { lang, currentPath } = Astro.props;
+const t = getStrings(lang);
+const navPages = PAGES.filter((p) => p.inNav);
+const isActive = (p: (typeof PAGES)[number]) => p.path === currentPath;
+const linkClass = (active: boolean) =>
+  active
+    ? 'flex items-center justify-between rounded-xl px-3.5 py-3 text-[0.95rem] font-bold bg-brand-50 text-brand-800 dark:bg-brand-500/15 dark:text-brand-200'
+    : 'flex items-center justify-between rounded-xl px-3.5 py-3 text-[0.95rem] font-semibold text-[var(--color-fg)]';
+---
+
+{/*
+  Mobile navigation drawer.
+
+  Rendered from the page shell rather than from `<header>`, because the header
+  applies `backdrop-filter` once the page scrolls — and a filtered ancestor
+  becomes the containing block for `position: fixed` descendants, which would
+  otherwise trap this full-screen sheet inside the 68px header bar.
+*/}
+<div
+  id="mobile-nav"
+  class="invisible fixed inset-0 z-[60] lg:hidden"
+  data-nav-panel
+  aria-hidden="true"
+>
+  <div class="absolute inset-0 bg-ink-950/45 backdrop-blur-sm" data-nav-scrim></div>
+
+  <div
+    class="absolute inset-x-0 top-0 max-h-dvh translate-y-[-2%] overflow-y-auto rounded-b-3xl border-b border-[var(--color-line)] bg-[var(--color-surface)] p-4 opacity-0 shadow-[var(--shadow-lg)] transition duration-200"
+    data-nav-sheet
+    role="dialog"
+    aria-modal="true"
+    aria-label={t.nav.menu}
+  >
+    <div class="mb-3 flex items-center justify-between">
+      <Logo />
+      <button type="button" class="gh-btn gh-btn-sm gh-btn-quiet" data-close-nav aria-label={t.nav.closeMenu}>
+        <Icon name="close" class="h-5 w-5" />
+      </button>
+    </div>
+
+    <nav aria-label={t.a11y.mainNav}>
+      <ul class="flex flex-col gap-1">
+        <li>
+          <a href={localePath(lang)} class={linkClass(currentPath === '')}>
+            {t.nav.home}
+            <Icon name="arrow-right" class="h-4 w-4 opacity-40 rtl:rotate-180" />
+          </a>
+        </li>
+        {
+          navPages.map((page) => (
+            <li>
+              <a
+                href={localePath(lang, page.path)}
+                aria-current={isActive(page) ? 'page' : undefined}
+                class={linkClass(isActive(page))}
+              >
+                {pageLabel(t, page.titleKey)}
+                <Icon name="arrow-right" class="h-4 w-4 opacity-40 rtl:rotate-180" />
+              </a>
+            </li>
+          ))
+        }
+        <li>
+          <a
+            href={localePath(lang, 'global') + '#emergency'}
+            class="flex items-center justify-between rounded-xl px-3.5 py-3 text-[0.95rem] font-bold text-urgent-700 dark:text-urgent-400"
+          >
+            {t.nav.emergency}
+            <Icon name="phone" class="h-4 w-4" />
+          </a>
+        </li>
+      </ul>
+    </nav>
+
+    <div class="mt-4 grid grid-cols-2 gap-2">
+      <button type="button" class="gh-btn gh-btn-md gh-btn-ghost" data-open-palette>
+        <Icon name="search" class="h-4 w-4" />
+        {t.nav.search}
+      </button>
+      <a href={localePath(lang, 'platform')} class="gh-btn gh-btn-md gh-btn-primary">
+        {t.nav.getStarted}
+      </a>
+    </div>
+
+    <p class="mt-4 rounded-xl bg-[var(--color-surface-2)] p-3 text-xs leading-relaxed text-[var(--color-fg-muted)]">
+      {t.footer.disclaimer}
+    </p>
+  </div>
+</div>

@@ -1,0 +1,367 @@
+---
+import PageHero from '~/components/PageHero.astro';
+import SectionHead from '~/components/SectionHead.astro';
+import Icon, { type IconName } from '~/components/Icon.astro';
+import { getStrings } from '~/i18n';
+
+interface Props { lang: string }
+const { lang } = Astro.props;
+const t = getStrings(lang);
+const c = t.pages.contact;
+const f = c.form;
+
+const CHANNEL_ICONS: IconName[] = ['message', 'stethoscope', 'building', 'file'];
+const RESPONSE_ICONS: IconName[] = ['clock', 'check', 'alert'];
+---
+
+<PageHero lang={lang} eyebrow={c.eyebrow} title={c.title} lead={c.lead} />
+
+<section class="gh-section">
+  <div class="gh-shell">
+    <div class="gh-split gh-split-start">
+      <!-- ---------------- Channels ---------------- -->
+      <div data-reveal>
+        <h2 class="gh-display-3 text-[var(--color-fg)]">{c.form.title}</h2>
+        <p class="gh-lead mt-3">{c.form.lead}</p>
+
+        <ul class="mt-8 grid gap-3">
+          {
+            c.channels.map((channel, i) => (
+              <li class="gh-card flex items-start gap-4 p-4 transition-colors hover:border-brand-300" data-reveal>
+                <span class="gh-icon-tile gh-icon-tile-sm shrink-0">
+                  <Icon name={CHANNEL_ICONS[i]} class="h-4 w-4" />
+                </span>
+                <span class="min-w-0">
+                  <span class="block text-[0.9rem] font-bold text-[var(--color-fg)]">{channel.title}</span>
+                  <span class="mt-0.5 block text-[0.8rem] leading-snug text-[var(--color-fg-muted)]">{channel.desc}</span>
+                  <a
+                    href={channel.href}
+                    class="mt-1.5 inline-flex items-center gap-1.5 break-all text-[0.82rem] font-semibold text-brand-700 hover:underline dark:text-brand-300"
+                  >
+                    <Icon name="mail" class="h-3.5 w-3.5 shrink-0" />
+                    {channel.value}
+                  </a>
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <!-- ---------------- Form ---------------- -->
+      <div data-reveal>
+        <form
+          class="gh-card p-6 sm:p-8"
+          novalidate
+          data-contact-form
+          aria-describedby="contact-form-status"
+        >
+          <h2 class="font-display text-[1.25rem] font-bold text-[var(--color-fg)]">{f.title}</h2>
+          <p class="mt-2 text-[0.85rem] text-[var(--color-fg-muted)]">{f.lead}</p>
+
+          <!-- Success / error banner -->
+          <div
+            class="mt-5 hidden items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-[0.85rem] text-emerald-900 dark:border-emerald-400/30 dark:bg-emerald-500/10 dark:text-emerald-200"
+            role="status"
+            data-form-success
+          >
+            <Icon name="check" class="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <strong class="block font-bold">{f.successTitle}</strong>
+              <span class="mt-0.5 block">{f.successBody}</span>
+              <button type="button" class="mt-2 font-bold underline" data-form-reset>
+                {f.sendAnother}
+              </button>
+            </span>
+          </div>
+
+          <div
+            class="mt-5 hidden items-start gap-3 rounded-xl border border-urgent-200 bg-urgent-50 p-4 text-[0.85rem] text-urgent-800 dark:border-urgent-400/30 dark:bg-urgent-500/10 dark:text-urgent-200"
+            role="alert"
+            data-form-error
+          >
+            <Icon name="alert" class="mt-0.5 h-4 w-4 shrink-0" />
+            <span>
+              <strong class="block font-bold">{f.errorTitle}</strong>
+              <span class="mt-0.5 block">{f.errorBody}</span>
+            </span>
+          </div>
+
+          <div class="mt-6 space-y-5" data-form-fields>
+            <div>
+              <label for="cf-topic" class="mb-1.5 block text-[0.82rem] font-bold text-[var(--color-fg)]">
+                {f.topic} <span class="text-urgent-700 dark:text-urgent-400">*</span>
+              </label>
+              <select
+                id="cf-topic"
+                name="topic"
+                required
+                class="w-full rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[0.9rem] text-[var(--color-fg)] outline-none transition focus:border-brand-400"
+                data-error-for="cf-topic"
+              >
+                <option value="">{f.topicPlaceholder}</option>
+                {f.topics.map((topic) => <option value={topic}>{topic}</option>)}
+              </select>
+              <p class="mt-1.5 hidden text-[0.78rem] font-semibold text-urgent-700 dark:text-urgent-400" data-error-msg="cf-topic">
+                {f.requiredField}
+              </p>
+            </div>
+
+            <div class="grid gap-5 sm:grid-cols-2">
+              <div>
+                <label for="cf-name" class="mb-1.5 block text-[0.82rem] font-bold text-[var(--color-fg)]">
+                  {f.name} <span class="text-urgent-700 dark:text-urgent-400">*</span>
+                </label>
+                <input
+                  id="cf-name"
+                  name="name"
+                  type="text"
+                  required
+                  autocomplete="name"
+                  class="w-full rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[0.9rem] text-[var(--color-fg)] outline-none transition focus:border-brand-400"
+                  data-error-for="cf-name"
+                />
+                <p class="mt-1.5 hidden text-[0.78rem] font-semibold text-urgent-700 dark:text-urgent-400" data-error-msg="cf-name">
+                  {f.requiredField}
+                </p>
+              </div>
+
+              <div>
+                <label for="cf-email" class="mb-1.5 block text-[0.82rem] font-bold text-[var(--color-fg)]">
+                  {f.email} <span class="text-urgent-700 dark:text-urgent-400">*</span>
+                </label>
+                <input
+                  id="cf-email"
+                  name="email"
+                  type="email"
+                  required
+                  autocomplete="email"
+                  class="w-full rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[0.9rem] text-[var(--color-fg)] outline-none transition focus:border-brand-400"
+                  data-error-for="cf-email"
+                />
+                <p class="mt-1.5 hidden text-[0.78rem] font-semibold text-urgent-700 dark:text-urgent-400" data-error-msg="cf-email">
+                  {f.invalidEmail}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <label for="cf-org" class="mb-1.5 block text-[0.82rem] font-bold text-[var(--color-fg)]">
+                {f.organisation} <span class="font-normal text-[var(--color-fg-subtle)]">({t.a11y.optional})</span>
+              </label>
+              <input
+                id="cf-org"
+                name="organisation"
+                type="text"
+                autocomplete="organization"
+                placeholder={f.organisationPlaceholder}
+                class="w-full rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[0.9rem] text-[var(--color-fg)] outline-none transition placeholder:text-[var(--color-fg-subtle)] focus:border-brand-400"
+              />
+            </div>
+
+            <div>
+              <div class="mb-1.5 flex items-baseline justify-between gap-3">
+                <label for="cf-message" class="block text-[0.82rem] font-bold text-[var(--color-fg)]">
+                  {f.message} <span class="text-urgent-700 dark:text-urgent-400">*</span>
+                </label>
+                <span class="text-[0.72rem] tabular-nums text-[var(--color-fg-subtle)]" data-char-count>
+                  0 / 20
+                </span>
+              </div>
+              <textarea
+                id="cf-message"
+                name="message"
+                rows="5"
+                required
+                minlength="20"
+                placeholder={f.messagePlaceholder}
+                class="w-full resize-y rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-3.5 py-2.5 text-[0.9rem] leading-relaxed text-[var(--color-fg)] outline-none transition placeholder:text-[var(--color-fg-subtle)] focus:border-brand-400"
+                data-error-for="cf-message"
+                data-min-chars="20"
+              ></textarea>
+              <p class="mt-1.5 hidden text-[0.78rem] font-semibold text-urgent-700 dark:text-urgent-400" data-error-msg="cf-message">
+                {f.tooShort}
+              </p>
+            </div>
+
+            <div>
+              <label for="cf-consent" class="flex cursor-pointer items-start gap-3 text-[0.82rem] leading-relaxed text-[var(--color-fg-muted)]">
+                <input
+                  id="cf-consent"
+                  type="checkbox"
+                  name="consent"
+                  required
+                  class="mt-0.5 h-4 w-4 shrink-0 rounded border-[var(--color-line-strong)] accent-brand-600"
+                  data-error-for="cf-consent"
+                />
+                <span>{f.consent} <span class="text-urgent-700 dark:text-urgent-400">*</span></span>
+              </label>
+              <p class="mt-1.5 hidden text-[0.78rem] font-semibold text-urgent-700 dark:text-urgent-400" data-error-msg="cf-consent">
+                {f.consentRequired}
+              </p>
+            </div>
+          </div>
+
+          <button type="submit" class="gh-btn gh-btn-lg gh-btn-primary mt-7 w-full" data-form-submit>
+            <span data-submit-label>{f.submit}</span>
+            <Icon name="arrow-right" class="h-4 w-4 rtl:rotate-180" />
+          </button>
+
+          <p id="contact-form-status" class="sr-only" role="status" aria-live="polite" data-form-live></p>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- What happens next + accessibility -->
+<section class="gh-section gh-band" aria-labelledby="response-title">
+  <div class="gh-shell">
+    <div class="gh-split">
+      <div data-reveal>
+        <SectionHead id="response-title" title={c.response.title} align="start" />
+        <ul class="mt-8 grid gap-3">
+          {
+            c.response.items.map((item, i) => (
+              <li class="gh-card flex items-start gap-4 p-5" data-reveal>
+                <span class="gh-icon-tile gh-icon-tile-sm shrink-0">
+                  <Icon name={RESPONSE_ICONS[i]} class="h-4 w-4" />
+                </span>
+                <span>
+                  <span class="block text-[0.9rem] font-bold text-[var(--color-fg)]">{item.title}</span>
+                  <span class="mt-0.5 block text-[0.84rem] leading-relaxed text-[var(--color-fg-muted)]">{item.desc}</span>
+                </span>
+              </li>
+            ))
+          }
+        </ul>
+      </div>
+
+      <div id="accessibility" class="gh-card scroll-mt-28 p-8" data-reveal>
+        <span class="gh-icon-tile gh-icon-tile-lg">
+          <Icon name="stethoscope" class="h-6 w-6" />
+        </span>
+        <h2 class="mt-6 font-display text-[1.3rem] font-bold text-[var(--color-fg)]">
+          {c.accessibility.title}
+        </h2>
+        <p class="mt-3 text-[0.92rem] leading-relaxed text-[var(--color-fg-muted)]">{c.accessibility.desc}</p>
+        <a href={c.channels[1].href} class="gh-btn gh-btn-md gh-btn-primary mt-6">
+          {c.accessibility.cta}
+          <Icon name="arrow-right" class="h-4 w-4 rtl:rotate-180" />
+        </a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  const form = document.querySelector<HTMLFormElement>('[data-contact-form]');
+  if (form) {
+    const success = form.querySelector<HTMLElement>('[data-form-success]')!;
+    const errorBox = form.querySelector<HTMLElement>('[data-form-error]')!;
+    const fieldsWrap = form.querySelector<HTMLElement>('[data-form-fields]')!;
+    const live = form.querySelector<HTMLElement>('[data-form-live]')!;
+    const submitBtn = form.querySelector<HTMLButtonElement>('[data-form-submit]')!;
+    const submitLabel = form.querySelector<HTMLElement>('[data-submit-label]')!;
+    const charCount = form.querySelector<HTMLElement>('[data-char-count]')!;
+    const message = form.querySelector<HTMLTextAreaElement>('#cf-message')!;
+    const labels = {
+      submit: submitLabel.textContent ?? '',
+      sending: '…',
+      success: success.querySelector('strong')?.textContent ?? '',
+      error: errorBox.querySelector('strong')?.textContent ?? '',
+    };
+
+    // Live character counter against the field's own minimum.
+    const updateCount = () => {
+      const min = Number(message.dataset.minChars ?? 20);
+      charCount.textContent = `${message.value.length} / ${min}`;
+    };
+    message.addEventListener('input', updateCount);
+    updateCount();
+
+    const showError = (id: string) => {
+      const field = form.querySelector<HTMLElement>(`[data-error-for="${id}"]`);
+      const msg = form.querySelector<HTMLElement>(`[data-error-msg="${id}"]`);
+      field?.classList.add('border-urgent-400', 'ring-2', 'ring-urgent-200');
+      msg?.classList.remove('hidden');
+      field?.setAttribute('aria-invalid', 'true');
+    };
+
+    const clearErrors = () => {
+      form.querySelectorAll<HTMLElement>('[data-error-for]').forEach((el) => {
+        el.classList.remove('border-urgent-400', 'ring-2', 'ring-urgent-200');
+        el.removeAttribute('aria-invalid');
+      });
+      form.querySelectorAll<HTMLElement>('[data-error-msg]').forEach((el) => el.classList.add('hidden'));
+    };
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearErrors();
+      success.classList.add('hidden');
+      success.classList.remove('flex');
+      errorBox.classList.add('hidden');
+      errorBox.classList.remove('flex');
+
+      const data = new FormData(form);
+      const topic = String(data.get('topic') ?? '');
+      const name = String(data.get('name') ?? '').trim();
+      const email = String(data.get('email') ?? '').trim();
+      const msg = String(data.get('message') ?? '').trim();
+      const consent = data.get('consent');
+
+      let firstInvalid: HTMLElement | null = null;
+      const fail = (id: string) => {
+        showError(id);
+        firstInvalid = firstInvalid ?? form.querySelector<HTMLElement>(`[data-error-for="${id}"]`);
+      };
+
+      if (!topic) fail('cf-topic');
+      if (!name) fail('cf-name');
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) fail('cf-email');
+      if (msg.length < Number(message.dataset.minChars ?? 20)) fail('cf-message');
+      if (!consent) fail('cf-consent');
+
+      if (firstInvalid) {
+        (firstInvalid as HTMLElement).focus();
+        live.textContent = labels.error;
+        return;
+      }
+
+      submitBtn.disabled = true;
+      submitLabel.textContent = labels.sending;
+
+      // No backend is wired to this static build. The form therefore hands the
+      // message to the visitor's mail client rather than pretending to deliver
+      // it, and says so plainly.
+      const subject = `[GlobalHealth] ${topic} — ${name}`;
+      const body = `${msg}\n\n—\n${name}\n${email}`;
+      window.location.href = `mailto:hello@globalhealth.health?subject=${encodeURIComponent(
+        subject
+      )}&body=${encodeURIComponent(body)}`;
+
+      window.setTimeout(() => {
+        submitBtn.disabled = false;
+        submitLabel.textContent = labels.submit;
+        success.classList.remove('hidden');
+        success.classList.add('flex');
+        fieldsWrap.classList.add('hidden');
+        live.textContent = `${labels.success} ${labels.error ? '' : ''}`;
+        success.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        success.querySelector<HTMLButtonElement>('[data-form-reset]')?.focus();
+      }, 400);
+    });
+
+    form.querySelector('[data-form-reset]')?.addEventListener('click', () => {
+      form.reset();
+      clearErrors();
+      updateCount();
+      success.classList.add('hidden');
+      success.classList.remove('flex');
+      fieldsWrap.classList.remove('hidden');
+      submitLabel.textContent = labels.submit;
+      form.querySelector<HTMLElement>('#cf-topic')?.focus();
+    });
+  }
+</script>

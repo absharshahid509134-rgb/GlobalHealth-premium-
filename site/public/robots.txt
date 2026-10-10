@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+# No crawl restrictions are needed: every route is public, indexable content.
+
+Sitemap: https://globalhealth.health/sitemap.xml

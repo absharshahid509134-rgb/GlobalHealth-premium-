@@ -1,0 +1,305 @@
+---
+import Icon from './Icon.astro';
+import { getStrings } from '~/i18n';
+import { buildSearchIndex } from '~/data/search';
+
+interface Props {
+  lang: string;
+}
+
+const { lang } = Astro.props;
+const t = getStrings(lang);
+const index = buildSearchIndex(t);
+
+/**
+ * The palette markup ships on every page; the index is inlined as JSON so the
+ * module needs no fetch and no framework runtime.
+ */
+---
+
+<div
+  id="gh-command-palette"
+  class="invisible fixed inset-0 z-[80] opacity-0"
+  data-palette-root
+  data-locale={lang}
+  data-no-results={t.a11y.noResults}
+  data-no-results-hint={t.a11y.noResultsHint}
+  data-palette-hint={t.nav.searchPlaceholder}
+  aria-hidden="true"
+>
+  <div class="absolute inset-0 bg-ink-950/55 backdrop-blur-sm" data-palette-scrim></div>
+
+  <div
+    class="absolute inset-x-0 top-[8vh] mx-auto flex max-h-[80vh] w-[min(40rem,calc(100%-2rem))] origin-top scale-95 flex-col overflow-hidden rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] opacity-0 shadow-[var(--shadow-lg)] transition duration-200"
+    data-palette-dialog
+    role="dialog"
+    aria-modal="true"
+    aria-label={t.a11y.searchDialog}
+  >
+    <!-- Input row -->
+    <div class="flex items-center gap-3 border-b border-[var(--color-line)] px-4 py-3.5">
+      <Icon name="search" class="h-5 w-5 shrink-0 text-[var(--color-fg-subtle)]" />
+      <input
+        type="text"
+        class="w-full bg-transparent text-[0.95rem] text-[var(--color-fg)] outline-none placeholder:text-[var(--color-fg-subtle)]"
+        placeholder={t.nav.searchPlaceholder}
+        aria-label={t.a11y.searchDialog}
+        autocomplete="off"
+        autocorrect="off"
+        spellcheck="false"
+        data-palette-input
+      />
+      <button
+        type="button"
+        class="gh-btn gh-btn-sm gh-btn-quiet"
+        data-palette-close
+        aria-label={t.a11y.closeSearch}
+      >
+        <Icon name="close" class="h-4 w-4" />
+      </button>
+    </div>
+
+    <!-- Results -->
+    <div class="min-h-0 flex-1 overflow-y-auto p-2" data-palette-results role="listbox" aria-label={t.a11y.searchDialog}></div>
+
+    <!-- Footer -->
+    <div class="flex items-center justify-between gap-3 border-t border-[var(--color-line)] px-4 py-2.5 text-[0.72rem] text-[var(--color-fg-subtle)]">
+      <span class="hidden sm:inline">{t.a11y.searchHintText}</span>
+      <span class="flex items-center gap-1.5">
+        <kbd class="rounded border border-[var(--color-line)] bg-[var(--color-surface-2)] px-1.5 py-0.5 font-sans">Esc</kbd>
+        <span class="ms-1">{t.a11y.close}</span>
+      </span>
+    </div>
+  </div>
+
+  <script type="application/json" data-palette-index set:html={JSON.stringify(index)} />
+</div>
+
+<script>
+  /**
+   * Global command palette.
+   *
+   * Plain TypeScript, no framework. The index is a static JSON block rendered
+   * into the page, so the first keystroke costs nothing: no fetch, no parse
+   * waterfall, no runtime dependency.
+   */
+  interface PaletteEntry {
+    kind: 'page' | 'task' | 'module' | 'action';
+    title: string;
+    subtitle: string;
+    keywords?: string[];
+    path: string;
+  }
+
+  const root = document.querySelector<HTMLElement>('[data-palette-root]');
+
+  if (root) {
+    const palette = root;
+    const dialog = palette.querySelector<HTMLElement>('[data-palette-dialog]');
+    const input = palette.querySelector<HTMLInputElement>('[data-palette-input]');
+    const results = palette.querySelector<HTMLElement>('[data-palette-results]');
+    const indexEl = palette.querySelector<HTMLScriptElement>('[data-palette-index]');
+
+    if (dialog && input && results) {
+      const locale = palette.dataset.locale ?? 'en';
+      const noResults = palette.dataset.noResults ?? '';
+      const noResultsHint = palette.dataset.noResultsHint ?? '';
+      const paletteHint = palette.dataset.paletteHint ?? '';
+
+      let INDEX: PaletteEntry[] = [];
+      try {
+        INDEX = indexEl?.textContent ? (JSON.parse(indexEl.textContent) as PaletteEntry[]) : [];
+      } catch {
+        INDEX = [];
+      }
+
+      const ICONS: Record<string, string> = {
+        page: '<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/><path d="M14 3v5h5"/>',
+        spark: '<path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8"/>',
+        shield: '<path d="M12 3l7 3v6c0 4.2-2.9 7.9-7 9-4.1-1.1-7-4.8-7-9V6Z"/><path d="m9 12 2 2 4-4"/>',
+        pill: '<path d="M10.5 20.5a5 5 0 0 1-7-7l6-6a5 5 0 0 1 7 7Z"/><path d="m7 10 6 6"/>',
+        flask: '<path d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3"/><path d="M7.5 15h9"/>',
+      };
+
+      const ESCAPES: Record<string, string> = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      };
+
+      const escapeHtml = (value: unknown): string =>
+        String(value ?? '').replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
+
+      const localize = (path: string): string => {
+        if (locale === 'en') return path;
+        const rest = path.replace(/^\/+/, '');
+        return rest ? `/${locale}/${rest}` : `/${locale}/`;
+      };
+
+      const icon = (name: string): string =>
+        `<svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" stroke-width="1.8" ` +
+        `stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] ?? ICONS['page']}</svg>`;
+
+      const search = (query: string): PaletteEntry[] => {
+        const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+        if (!terms.length) return [];
+
+        const scored: Array<{ e: PaletteEntry; score: number }> = [];
+        for (const entry of INDEX) {
+          const title = entry.title.toLowerCase();
+          const sub = entry.subtitle.toLowerCase();
+          const extra = (entry.keywords ?? []).join(' ').toLowerCase();
+          let score = 0;
+          for (const term of terms) {
+            if (title.startsWith(term)) score += 12;
+            else if (title.includes(term)) score += 8;
+            if (sub.includes(term)) score += 3;
+            if (extra.includes(term)) score += 5;
+          }
+          if (score > 0) scored.push({ e: entry, score });
+        }
+
+        scored.sort((a, b) => b.score - a.score || a.e.title.localeCompare(b.e.title, locale));
+        return scored.slice(0, 8).map((s) => s.e);
+      };
+
+      let lastFocus: HTMLElement | null = null;
+      let activeIndex = -1;
+      let lastQuery: string | null = null;
+
+      const optionNodes = (): HTMLElement[] => Array.from(results.querySelectorAll<HTMLElement>('[data-idx]'));
+
+      const setActive = (next: number): void => {
+        const list = optionNodes();
+        if (!list.length) return;
+        const previous = list[activeIndex];
+        if (previous) {
+          previous.classList.remove('bg-[var(--color-surface-2)]');
+          previous.setAttribute('aria-selected', 'false');
+        }
+        activeIndex = (next + list.length) % list.length;
+        const el = list[activeIndex];
+        if (!el) return;
+        el.classList.add('bg-[var(--color-surface-2)]');
+        el.setAttribute('aria-selected', 'true');
+        el.scrollIntoView({ block: 'nearest' });
+      };
+
+      const render = (): void => {
+        const q = input.value;
+        if (q === lastQuery) return;
+        lastQuery = q;
+        activeIndex = -1;
+
+        if (!q.trim()) {
+          results.innerHTML = `<p class="px-3 py-6 text-center text-[0.8rem] text-[var(--color-fg-subtle)]">${escapeHtml(paletteHint)}</p>`;
+          return;
+        }
+
+        const hits = search(q);
+        if (!hits.length) {
+          results.innerHTML =
+            `<div class="px-3 py-8 text-center">` +
+            `<p class="text-[0.9rem] font-bold text-[var(--color-fg)]">${escapeHtml(noResults)}</p>` +
+            `<p class="mt-1 text-[0.78rem] text-[var(--color-fg-subtle)]">${escapeHtml(noResultsHint)}</p>` +
+            `</div>`;
+          return;
+        }
+
+        results.innerHTML = hits
+          .map((hit, i) => {
+            const href = escapeHtml(localize(hit.path));
+            return (
+              `<a href="${href}" role="option" aria-selected="false" data-idx="${i}" ` +
+              `class="group flex items-center gap-3 rounded-xl px-3 py-2.5 transition-colors hover:bg-[var(--color-surface-2)] focus:bg-[var(--color-surface-2)] focus:outline-none">` +
+              `<span class="gh-icon-tile gh-icon-tile-sm !h-8 !w-8">${icon(hit.kind)}</span>` +
+              `<span class="min-w-0 flex-1">` +
+              `<span class="block truncate text-[0.875rem] font-semibold text-[var(--color-fg)]">${escapeHtml(hit.title)}</span>` +
+              `<span class="block truncate text-[0.75rem] text-[var(--color-fg-subtle)]">${escapeHtml(hit.subtitle)}</span>` +
+              `</span>` +
+              `<svg viewBox="0 0 24 24" class="h-4 w-4 shrink-0 opacity-25 group-hover:opacity-60" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 5 7 7-7 7"/></svg>` +
+              `</a>`
+            );
+          })
+          .join('');
+      };
+
+      /**
+       * @param prefill seed the query — the homepage "popular searches" chips
+       *   pass their term here so a suggestion actually runs the search
+       *   instead of opening an empty palette.
+       */
+      const open = (prefill?: string): void => {
+        lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        palette.classList.remove('invisible', 'opacity-0');
+        palette.setAttribute('aria-hidden', 'false');
+        dialog.classList.remove('scale-95', 'opacity-0');
+        input.value = prefill ?? '';
+        lastQuery = null; // force a re-render even when the seed is unchanged
+        render();
+        requestAnimationFrame(() => input.focus());
+        document.documentElement.style.overflow = 'hidden';
+      };
+
+      const close = (): void => {
+        palette.classList.add('invisible', 'opacity-0');
+        palette.setAttribute('aria-hidden', 'true');
+        dialog.classList.add('scale-95', 'opacity-0');
+        document.documentElement.style.overflow = '';
+        lastFocus?.focus();
+      };
+
+      document.addEventListener('click', (e) => {
+        if (!(e.target instanceof Element)) return;
+
+        const opener = e.target.closest<HTMLElement>('[data-open-palette]');
+        if (opener) {
+          e.preventDefault();
+          open(opener.dataset.prefill || '');
+          return;
+        }
+        if (e.target.closest('[data-palette-close], [data-palette-scrim]')) {
+          e.preventDefault();
+          close();
+        }
+      });
+
+      document.addEventListener('keydown', (e) => {
+        if (palette.classList.contains('invisible')) {
+          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+            e.preventDefault();
+            open();
+            return;
+          }
+          const tag = document.activeElement?.tagName ?? '';
+          if (e.key === '/' && !/^(INPUT|TEXTAREA|SELECT)$/.test(tag)) {
+            e.preventDefault();
+            open();
+          }
+          return;
+        }
+
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          close();
+        } else if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setActive(activeIndex + 1);
+        } else if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setActive(activeIndex - 1);
+        } else if (e.key === 'Enter') {
+          const list = optionNodes();
+          if (activeIndex >= 0 && list[activeIndex]) {
+            e.preventDefault();
+            list[activeIndex]!.click();
+          }
+        }
+      });
+
+      input.addEventListener('input', render);
+    }
+  }
+</script>

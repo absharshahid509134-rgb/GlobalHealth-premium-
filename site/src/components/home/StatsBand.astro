@@ -1,0 +1,42 @@
+---
+import { getStrings } from '~/i18n';
+
+interface Props {
+  lang: string;
+}
+
+const { lang } = Astro.props;
+const t = getStrings(lang);
+
+/** Count-up targets. Kept separate from the label so the script can animate. */
+const VALUES: Array<{ to: number; prefix?: string; suffix?: string }> = [
+  { to: 190, suffix: '+' },
+  { to: 12000, suffix: '+' },
+  { to: 8 },
+  { to: 1, prefix: '< ', suffix: 's' },
+];
+---
+
+<section class="gh-section-sm border-y border-[var(--color-line)] bg-[var(--color-surface-2)]" aria-label={t.stats.label}>
+  <div class="gh-shell">
+    <div class="grid grid-cols-2 gap-x-4 gap-y-8 lg:grid-cols-4">
+      {
+        t.stats.items.map((stat, i) => (
+          <div class="flex flex-col items-center gap-1.5 text-center" data-reveal>
+            <span
+              class="font-display text-[clamp(1.85rem,1.3rem+2vw,2.9rem)] font-extrabold leading-none tracking-[-0.03em] text-brand-700 dark:text-brand-300"
+              data-count-to={VALUES[i].to}
+              data-count-prefix={VALUES[i].prefix ?? ''}
+              data-count-suffix={VALUES[i].suffix ?? ''}
+            >
+              {stat.value}
+            </span>
+            <span class="max-w-[13rem] text-[0.82rem] leading-snug text-[var(--color-fg-muted)]">
+              {stat.label}
+            </span>
+          </div>
+        ))
+      }
+    </div>
+  </div>
+</section>

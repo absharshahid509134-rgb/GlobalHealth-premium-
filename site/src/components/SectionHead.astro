@@ -1,0 +1,64 @@
+---
+/**
+ * SectionHead — the single heading pattern used by every band on the site.
+ * `align="center"` produces the symmetric form (used on the homepage and for
+ * closing statements); `align="start"` produces the editorial form used on
+ * long-form pages. Both share identical type metrics and spacing.
+ */
+interface Props {
+  eyebrow?: string;
+  title: string;
+  lead?: string;
+  id?: string;
+  align?: 'center' | 'start';
+  /** Small note rendered under the lead, e.g. a disclaimer. */
+  note?: string;
+  /** Tighten the gap above the heading for bands that follow a visual. */
+  tight?: boolean;
+  tone?: 'default' | 'onDark';
+}
+
+const { eyebrow, title, lead, id, align = 'start', note, tight = false, tone = 'default' } = Astro.props;
+const onDark = tone === 'onDark';
+---
+
+<div class:list={['gh-head', align === 'center' && 'gh-head-center', !tight && 'mt-0']}>
+  {
+    eyebrow && (
+      <p class:list={['gh-eyebrow', onDark && '!border-white/15 !bg-white/10 !text-brand-200']}>
+        {eyebrow}
+      </p>
+    )
+  }
+  <h2
+    id={id}
+    class:list={[
+      'gh-display-3',
+      eyebrow ? 'mt-4' : '',
+      onDark ? 'text-white' : 'text-[var(--color-fg)]',
+    ]}
+  >
+    {title}
+  </h2>
+  {
+    lead && (
+      <p class:list={['gh-lead', eyebrow ? 'mt-4' : 'mt-3', onDark && '!text-white/70']}>
+        {lead}
+      </p>
+    )
+  }
+  {
+    note && (
+      <p
+        class:list={[
+          'mx-auto mt-5 max-w-3xl rounded-xl border px-5 py-3.5 text-[0.8rem] leading-relaxed',
+          onDark
+            ? 'border-white/10 bg-white/5 text-white/60'
+            : 'border-[var(--color-line)] bg-[var(--color-surface-2)] text-[var(--color-fg-muted)]',
+        ]}
+      >
+        {note}
+      </p>
+    )
+  }
+</div>

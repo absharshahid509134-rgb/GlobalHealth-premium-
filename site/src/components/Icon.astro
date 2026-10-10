@@ -1,0 +1,30 @@
+---
+import { ICON_PATHS, type IconName } from '~/lib/icons';
+
+export type { IconName } from '~/lib/icons';
+
+interface Props {
+  name: IconName;
+  class?: string;
+  size?: number;
+  strokeWidth?: number;
+}
+
+const { name, class: className = 'h-5 w-5', size, strokeWidth = 1.75 } = Astro.props;
+const d = ICON_PATHS[name] ?? ICON_PATHS.file;
+---
+
+<svg
+  class={className}
+  width={size}
+  height={size}
+  viewBox="0 0 24 24"
+  fill="none"
+  stroke="currentColor"
+  stroke-width={strokeWidth}
+  stroke-linecap="round"
+  stroke-linejoin="round"
+  aria-hidden="true"
+  focusable="false"
+  set:html={d}
+/>

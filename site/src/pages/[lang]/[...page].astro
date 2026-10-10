@@ -1,0 +1,74 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import HomeView from '~/views/HomeView.astro';
+import PlatformView from '~/views/PlatformView.astro';
+import SolutionsView from '~/views/SolutionsView.astro';
+import GlobalView from '~/views/GlobalView.astro';
+import AboutView from '~/views/AboutView.astro';
+import ContactView from '~/views/ContactView.astro';
+import LegalView from '~/views/LegalView.astro';
+import { getStrings, LOCALE_CODES } from '~/i18n';
+import { PAGES, pageLabel, type PageSlug } from '~/data/pages';
+
+/**
+ * Every page of the site is produced here.
+ *
+ * `getStaticPaths` crosses the full locale × page matrix, so each of the eight
+ * languages gets a complete, independently addressable set of routes with its
+ * own `<html lang>` / `dir`, its own hreflang cluster and its own canonical.
+ */
+
+export function getStaticPaths() {
+  return LOCALE_CODES.flatMap((lang) =>
+    PAGES.map((page) => ({
+      params: { lang, page: page.slug === '' ? undefined : page.slug },
+      props: { lang, slug: page.slug },
+    }))
+  );
+}
+
+interface Props {
+  lang: string;
+  slug: PageSlug;
+}
+
+const { lang, slug } = Astro.props;
+const t = getStrings(lang);
+
+const pageDef = PAGES.find((p) => p.slug === slug) ?? PAGES[0];
+
+/**
+ * The browser/serper title uses the short navigation label; the visible `h1`
+ * keeps the full descriptive headline. This keeps every locale's `<title>`
+ * comfortably inside the ~70-character display budget, which matters most in
+ * German, Spanish and French where the headlines run long.
+ */
+const META: Record<string, { title: string; description: string }> = {
+  home: { title: t.site.name, description: t.site.description },
+  platform: { title: pageLabel(t, 'platform'), description: t.pages.platform.lead },
+  solutions: { title: pageLabel(t, 'solutions'), description: t.pages.solutions.lead },
+  global: { title: pageLabel(t, 'global'), description: t.pages.global.lead },
+  about: { title: pageLabel(t, 'about'), description: t.pages.about.lead },
+  contact: { title: pageLabel(t, 'contact'), description: t.pages.contact.lead },
+  privacy: { title: t.footer.privacy, description: t.pages.legal.privacySummary },
+  terms: { title: t.footer.terms, description: t.pages.legal.termsSummary },
+};
+
+const meta = META[slug] ?? META.home;
+---
+
+<BaseLayout
+  lang={lang}
+  slug={slug ? [slug] : []}
+  title={meta.title}
+  description={meta.description}
+  path={pageDef.path}
+>
+  {slug === '' && <HomeView lang={lang} />}
+  {slug === 'platform' && <PlatformView lang={lang} />}
+  {slug === 'solutions' && <SolutionsView lang={lang} />}
+  {slug === 'global' && <GlobalView lang={lang} />}
+  {slug === 'about' && <AboutView lang={lang} />}
+  {slug === 'contact' && <ContactView lang={lang} />}
+  {(slug === 'privacy' || slug === 'terms') && <LegalView lang={lang} doc={slug} />}
+</BaseLayout>

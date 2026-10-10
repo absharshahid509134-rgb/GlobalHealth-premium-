@@ -1,0 +1,54 @@
+---
+import Icon, { type IconName } from '../Icon.astro';
+import SectionHead from '../SectionHead.astro';
+import { getStrings, localePath } from '~/i18n';
+
+interface Props {
+  lang: string;
+}
+
+const { lang } = Astro.props;
+const t = getStrings(lang);
+
+const ICONS: IconName[] = ['activity', 'pill', 'flask', 'map', 'spark', 'file'];
+const SLUGS = ['diseases', 'medicines', 'diagnostics', 'directory', 'ai', 'news'];
+
+/**
+ * Quick access — six equal cards in a 2 / 4 / 3 grid so the row never leaves a
+ * ragged edge at any width.
+ */
+---
+
+<section class="gh-section" aria-labelledby="quick-title">
+  <div class="gh-shell">
+    <SectionHead
+      id="quick-title"
+      eyebrow={t.home.quickActions.eyebrow}
+      title={t.home.quickActions.title}
+      lead={t.home.quickActions.lead}
+      align="center"
+    />
+
+    <div class="mt-10 grid grid-cols-2 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+      {
+        t.home.quickActions.items.map((item, i) => (
+          <a
+            href={localePath(lang, 'platform') + `#${SLUGS[i]}`}
+            class="gh-card gh-card-hover group flex h-full flex-col p-4 sm:p-5"
+            data-reveal
+          >
+            <span class="gh-icon-tile gh-icon-tile-md">
+              <Icon name={ICONS[i]} class="h-5 w-5" />
+            </span>
+            <h3 class="mt-4 text-[0.95rem] font-bold leading-snug text-[var(--color-fg)]">{item.title}</h3>
+            <p class="mt-1.5 flex-1 text-[0.82rem] leading-relaxed text-[var(--color-fg-muted)]">{item.desc}</p>
+            <span class="mt-3 inline-flex items-center gap-1.5 text-[0.76rem] font-bold text-brand-700 dark:text-brand-300">
+              {t.common.explore}
+              <Icon name="arrow-right" class="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
+            </span>
+          </a>
+        ))
+      }
+    </div>
+  </div>
+</section>

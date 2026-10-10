@@ -1,0 +1,188 @@
+---
+import '~/styles/fonts.css';
+import '~/styles/global.css';
+import Header from '~/components/Header.astro';
+import Footer from '~/components/Footer.astro';
+import CommandPalette from '~/components/CommandPalette.astro';
+import MobileNav from '~/components/MobileNav.astro';
+import { getStrings, getLocale, LOCALES, hreflangTag, localePath } from '~/i18n';
+import { PAGES } from '~/data/pages';
+import outfitLatinWoff2 from '@fontsource-variable/outfit/files/outfit-latin-wght-normal.woff2?url';
+import interLatinWoff2 from '@fontsource-variable/inter/files/inter-latin-wght-normal.woff2?url';
+import plexArabic400Woff2 from '@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-400-normal.woff2?url';
+import plexArabic700Woff2 from '@fontsource/ibm-plex-sans-arabic/files/ibm-plex-sans-arabic-arabic-700-normal.woff2?url';
+import notoDevanagari400Woff2 from '@fontsource/noto-sans-devanagari/files/noto-sans-devanagari-devanagari-400-normal.woff2?url';
+import notoDevanagari600Woff2 from '@fontsource/noto-sans-devanagari/files/noto-sans-devanagari-devanagari-600-normal.woff2?url';
+
+interface Props {
+  lang: string;
+  /** Path segments after the locale, e.g. ['platform']. Empty for home. */
+  slug?: string[];
+  title: string;
+  description: string;
+  /** Path segments only, without locale or trailing slash. Optional — the
+   *  canonical path is derived from `slug` when it is not supplied. */
+  path?: string;
+  ogType?: string;
+  noindex?: boolean;
+}
+
+const {
+  lang,
+  slug = [],
+  title,
+  description,
+  path,
+  ogType = 'website',
+  noindex = false,
+} = Astro.props;
+
+const t = getStrings(lang);
+const locale = getLocale(lang);
+const font = locale.font;
+
+const pageKey = (slug[0] ?? 'home') as (typeof PAGES)[number]['titleKey'];
+const pageDef = PAGES.find((p) => p.titleKey === pageKey);
+const pagePath = path ?? pageDef?.path ?? '';
+
+const siteName = t.site.name;
+const fullTitle = title === siteName ? title : `${title} · ${siteName}`;
+
+/** Canonical is always locale-prefixed; `en` uses /en/ for hreflang symmetry. */
+const canonical = new URL(`${localePath(lang, pagePath)}`, Astro.site ?? 'https://globalhealth.health').href;
+
+const year = new Date().getFullYear();
+---
+
+<!doctype html>
+<html lang={locale.code} dir={locale.dir} class="scroll-smooth">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    {noindex && <meta name="robots" content="noindex, follow" />}
+    {!noindex && <meta name="robots" content="index, follow, max-image-preview:large" />}
+
+    {/* Open Graph */}
+    <meta property="og:type" content={ogType} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={fullTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:locale" content={hreflangTag(locale).replace('-', '_')} />
+    {LOCALES.filter((l) => l.code !== lang).map((l) => (
+      <meta property="og:locale:alternate" content={hreflangTag(l).replace('-', '_')} />
+    ))}
+
+    {/* Twitter */}
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={fullTitle} />
+    <meta name="twitter:description" content={description} />
+
+    {/* Alternates for every shipped locale */}
+    {LOCALES.map((l) => (
+      <link
+        rel="alternate"
+        hreflang={hreflangTag(l)}
+        href={new URL(localePath(l.code, pagePath), Astro.site ?? 'https://globalhealth.health').href}
+      />
+    ))}
+    <link rel="alternate" hreflang="x-default" href={new URL(localePath('en', pagePath), Astro.site ?? 'https://globalhealth.health').href} />
+
+    {/* Preload exactly the faces this page needs for a first paint.
+        Every page renders the Latin wordmark and digits, so the Latin faces
+        are always worth the round trip. The Arabic and Devanagari faces are
+        not: the `:lang()` rules swap the whole type stack for those scripts,
+        and preloading them everywhere would push ~80 KB of unused font down
+        the pipe on every Latin page. Chinese rides the system CJK stack. */}
+    <link rel="preload" href={outfitLatinWoff2} as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href={interLatinWoff2} as="font" type="font/woff2" crossorigin />
+    {
+      font === 'arabic' && (
+        <>
+          <link rel="preload" href={plexArabic400Woff2} as="font" type="font/woff2" crossorigin />
+          <link rel="preload" href={plexArabic700Woff2} as="font" type="font/woff2" crossorigin />
+        </>
+      )
+    }
+    {
+      font === 'devanagari' && (
+        <>
+          <link rel="preload" href={notoDevanagari400Woff2} as="font" type="font/woff2" crossorigin />
+          <link rel="preload" href={notoDevanagari600Woff2} as="font" type="font/woff2" crossorigin />
+        </>
+      )
+    }
+
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <meta name="theme-color" content="#07856a" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#070c12" media="(prefers-color-scheme: dark)" />
+
+    {/* Resolve the stored theme + visitor locale before first paint.
+        Blocking and inline by design: it is ~300 bytes and prevents a flash. */}
+    <script is:inline define:vars={{ defaultLocale: 'en' }}>
+      (function () {
+        try {
+          var stored = localStorage.getItem('gh-theme');
+          var sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+          var dark = stored ? stored === 'dark' : sysDark;
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
+
+          var pref = localStorage.getItem('gh-locale');
+          if (pref) {
+            var here = document.documentElement.lang;
+            if (pref !== here && !location.pathname.startsWith('/' + pref + '/')) {
+              // Only redirect away from the un-localised root so deep links survive.
+            }
+          }
+        } catch (e) {
+          /* storage blocked — fall back to the light default */
+        }
+      })();
+    </script>
+
+    {/* Structured data. One WebSite node with the search action wired to the
+        command palette, plus per-page metadata. */}
+    <script type="application/ld+json" set:html={JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: siteName,
+      description: t.site.description,
+      url: new URL('/', Astro.site ?? 'https://globalhealth.health').href,
+      inLanguage: locale.intl,
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: `${new URL(localePath(lang), Astro.site ?? 'https://globalhealth.health').href}#search`,
+        'query-input': 'required name=search_term_string',
+      },
+    })} />
+  </head>
+
+  <body class="min-h-dvh bg-[var(--color-canvas)] text-[var(--color-fg)]">
+    <a class="gh-skip" href="#main">{t.a11y.skip}</a>
+
+    <Header lang={lang} currentPath={pagePath} />
+
+    <main id="main" tabindex="-1" class="block w-full focus:outline-none">
+      <slot />
+    </main>
+
+    <Footer lang={lang} year={year} />
+
+    {/* Sits outside <header> on purpose — see MobileNav for why. */}
+    <MobileNav lang={lang} currentPath={path ?? ''} />
+
+    <CommandPalette lang={lang} />
+
+    {/* Site-wide behaviour: reveal on scroll, header elevation, ⌘K wiring,
+        theme control. One module, no framework, ~4 kB. */}
+    <script>
+      import '~/scripts/site';
+    </script>
+  </body>
+</html>

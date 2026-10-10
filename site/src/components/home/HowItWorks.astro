@@ -1,0 +1,44 @@
+---
+import SectionHead from '../SectionHead.astro';
+import { getStrings } from '~/i18n';
+
+interface Props {
+  lang: string;
+}
+
+const { lang } = Astro.props;
+const t = getStrings(lang);
+---
+
+<!-- Three equal steps, joined by a connecting rule that mirrors on small screens. -->
+<section class="gh-section" aria-labelledby="how-title">
+  <div class="gh-shell">
+    <SectionHead
+      id="how-title"
+      eyebrow={t.home.how.eyebrow}
+      title={t.home.how.title}
+      lead={t.home.how.lead}
+      align="center"
+    />
+
+    <ol class="relative mt-14 grid grid-cols-1 gap-8 md:grid-cols-3 md:gap-6">
+      <!-- Connector line, desktop only. -->
+      <div
+        class="pointer-events-none absolute inset-x-[16%] top-7 hidden h-px bg-[var(--color-line-strong)] md:block"
+        aria-hidden="true"
+      ></div>
+
+      {
+        t.home.how.items.map((item, i) => (
+          <li class="relative flex flex-col items-center text-center" data-reveal>
+            <span class="relative z-10 grid h-14 w-14 place-items-center rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)] font-display text-[1.05rem] font-extrabold text-brand-700 shadow-[var(--shadow-sm)] dark:text-brand-300">
+              {i + 1}
+            </span>
+            <h3 class="mt-5 font-display text-[1.05rem] font-bold text-[var(--color-fg)]">{item.title}</h3>
+            <p class="mt-2 max-w-sm text-[0.88rem] leading-relaxed text-[var(--color-fg-muted)]">{item.desc}</p>
+          </li>
+        ))
+      }
+    </ol>
+  </div>
+</section>

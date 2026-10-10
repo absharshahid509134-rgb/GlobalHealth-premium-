@@ -1,0 +1,65 @@
+---
+import Icon from '../Icon.astro';
+import SectionHead from '../SectionHead.astro';
+import { getStrings, localePath } from '~/i18n';
+
+interface Props {
+  lang: string;
+}
+
+const { lang } = Astro.props;
+const t = getStrings(lang);
+---
+
+<!-- FAQ uses native <details> so it works with zero JavaScript. -->
+<section class="gh-section" aria-labelledby="faq-title">
+  <div class="gh-shell">
+    <SectionHead
+      id="faq-title"
+      eyebrow={t.home.faq.eyebrow}
+      title={t.home.faq.title}
+      lead={t.home.faq.lead}
+      align="center"
+    />
+
+    <div class="gh-prose mt-11">
+      <div class="divide-y divide-[var(--color-line)] overflow-hidden rounded-2xl border border-[var(--color-line)] bg-[var(--color-surface)]">
+        {
+          t.home.faq.items.map((item, i) => (
+            <details class="group faq" name="home-faq" open={i === 0}>
+              <summary class="flex cursor-pointer list-none items-start gap-4 px-5 py-5 text-start transition-colors hover:bg-[var(--color-surface-2)] sm:px-6">
+                <span class="mt-0.5 font-display text-[0.95rem] font-bold leading-snug text-[var(--color-fg)]">
+                  {item.q}
+                </span>
+                <span
+                  class="ms-auto grid h-6 w-6 shrink-0 place-items-center rounded-full border border-[var(--color-line)] text-[var(--color-fg-subtle)] transition duration-200 group-hover:border-brand-300 group-hover:text-brand-600 group-open:rotate-45"
+                  aria-hidden="true"
+                >
+                  <Icon name="close" class="h-3 w-3" />
+                </span>
+              </summary>
+              <div class="px-5 pb-5 pe-12 sm:px-6 sm:pe-14">
+                <p class="text-[0.88rem] leading-relaxed text-[var(--color-fg-muted)]">{item.a}</p>
+              </div>
+            </details>
+          ))
+        }
+      </div>
+
+      <p class="mt-6 text-center text-[0.85rem] text-[var(--color-fg-muted)]">
+        {t.home.faq.lead}
+        <a href={localePath(lang, 'contact')} class="gh-link ms-1">{t.nav.contact}</a>
+      </p>
+    </div>
+  </div>
+</section>
+
+<style>
+  /* Native disclosure marker removed; we draw our own affordance. */
+  .faq > summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq > summary::marker {
+    content: '';
+  }
+</style>

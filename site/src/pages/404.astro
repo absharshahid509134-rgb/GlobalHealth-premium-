@@ -1,0 +1,26 @@
+---
+import BaseLayout from '~/layouts/BaseLayout.astro';
+import NotFoundView from '~/views/NotFoundView.astro';
+import { getStrings } from '~/i18n';
+
+/**
+ * 404.
+ *
+ * A static host serves exactly one `404.html`, so this page cannot be
+ * pre-rendered per locale the way the rest of the site is. Instead it renders
+ * in the default language and offers a full language switcher, so a visitor
+ * who mistyped a localised URL still lands somewhere they can read.
+ */
+const lang = 'en';
+const t = getStrings(lang);
+---
+
+<BaseLayout
+  lang={lang}
+  slug={['404']}
+  title={`${t.pages.notFound.code} · ${t.pages.notFound.title}`}
+  description={t.pages.notFound.lead}
+  noindex
+>
+  <NotFoundView lang={lang} />
+</BaseLayout>

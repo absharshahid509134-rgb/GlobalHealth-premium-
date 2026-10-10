@@ -973,7 +973,7 @@ export const FullScreenBuyMedicineWorkspace: React.FC<FullScreenBuyMedicineWorks
                         Active Molecule / Generic: <strong className="text-slate-900">{originMedicine?.genericName || product.genericName}</strong>
                       </p>
                       <p className="text-xs text-slate-600">
-                        Therapeutic Class: <strong className="text-slate-800">{originMedicine?.therapeuticGroup || product.therapeuticClass || product.category}</strong>
+                        Therapeutic Class: <strong className="text-slate-800">{originMedicine?.therapeuticGroup || product.subCategory || product.category}</strong>
                       </p>
                       <p className="text-xs text-slate-500">Category: {originMedicine?.category || product.category}</p>
                       <p className="text-xs">

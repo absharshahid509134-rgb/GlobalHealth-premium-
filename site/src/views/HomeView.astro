@@ -1,0 +1,37 @@
+---
+import Hero from '~/components/home/Hero.astro';
+import StatsBand from '~/components/home/StatsBand.astro';
+import QuickActions from '~/components/home/QuickActions.astro';
+import Modules from '~/components/home/Modules.astro';
+import HowItWorks from '~/components/home/HowItWorks.astro';
+import Features from '~/components/home/Features.astro';
+import GlobalTeaser from '~/components/home/GlobalTeaser.astro';
+import Standards from '~/components/home/Standards.astro';
+import Faq from '~/components/home/Faq.astro';
+import CtaBand from '~/components/CtaBand.astro';
+import { getStrings, localePath } from '~/i18n';
+
+interface Props { lang: string }
+const { lang } = Astro.props;
+const t = getStrings(lang);
+---
+
+<Hero lang={lang} />
+<StatsBand lang={lang} />
+<QuickActions lang={lang} />
+<Modules lang={lang} />
+<HowItWorks lang={lang} />
+<Features lang={lang} />
+<GlobalTeaser lang={lang} />
+<Standards lang={lang} />
+<Faq lang={lang} />
+<CtaBand
+  lang={lang}
+  id="home-cta"
+  title={t.home.cta.title}
+  lead={t.home.cta.lead}
+  primaryLabel={t.home.cta.primary}
+  primaryHref={localePath(lang, 'platform')}
+  secondaryLabel={t.home.cta.secondary}
+  note={t.home.cta.note}
+/>

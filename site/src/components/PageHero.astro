@@ -1,0 +1,60 @@
+---
+import Icon from './Icon.astro';
+
+interface Props {
+  lang: string;
+  eyebrow: string;
+  title: string;
+  lead: string;
+  /** Short bullets rendered as a symmetric chip row under the lead. */
+  points?: string[];
+  /** Optional compact stat strip. */
+  stats?: Array<{ value: string; label: string }>;
+  id?: string;
+}
+
+const { eyebrow, title, lead, points, stats, id = 'page-hero' } = Astro.props;
+---
+
+<section class="gh-aurora relative overflow-hidden border-b border-[var(--color-line)]" aria-labelledby={id}>
+  <div class="gh-grid-lines pointer-events-none absolute inset-0 opacity-25" aria-hidden="true"></div>
+
+  <div class="gh-shell relative py-14 sm:py-20 lg:py-24">
+    <div class="gh-prose text-center">
+      <p class="gh-eyebrow inline-flex">{eyebrow}</p>
+      <h1 id={id} class="gh-display-2 mt-5 text-[var(--color-fg)]">{title}</h1>
+      <p class="gh-lead mx-auto mt-5 max-w-2xl">{lead}</p>
+
+      {
+        points && points.length > 0 && (
+          <ul class="mx-auto mt-8 flex max-w-3xl flex-wrap items-center justify-center gap-2">
+            {points.map((p) => (
+              <li class="gh-chip !bg-[var(--color-surface)] !text-[0.8rem] shadow-[var(--shadow-xs)]">
+                <Icon name="check" class="h-3.5 w-3.5 text-brand-500" />
+                {p}
+              </li>
+            ))}
+          </ul>
+        )
+      }
+
+      {
+        stats && stats.length > 0 && (
+          <dl class="mx-auto mt-10 grid max-w-3xl grid-cols-2 gap-3 lg:grid-cols-4">
+            {stats.map((s) => (
+              <div class="gh-card p-4 text-center">
+                <dt class="sr-only">{s.label}</dt>
+                <dd>
+                  <span class="block font-display text-[1.5rem] font-extrabold leading-none text-brand-700 dark:text-brand-300">
+                    {s.value}
+                  </span>
+                  <span class="mt-1.5 block text-[0.75rem] leading-snug text-[var(--color-fg-muted)]">{s.label}</span>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        )
+      }
+    </div>
+  </div>
+</section>
