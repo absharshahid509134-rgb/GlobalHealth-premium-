@@ -44,6 +44,10 @@ try {
   assert.notEqual(visitorA.token, visitorB.token, 'each demo visitor needs a unique opaque session');
   assert.notEqual(visitorA.user.id, visitorB.user.id, 'each demo visitor needs a unique synthetic user');
 
+  const forged = visitorA.token.slice(0, -4) + (visitorA.token.endsWith('0000') ? '1111' : '0000');
+  assert.equal((await request('/api/auth/me', { token: forged })).status, 401, 'tampered demo token must be rejected');
+  assert.equal((await request('/api/auth/me', { token: 'gh-demo-' + 'a'.repeat(32) + '-' + 'b'.repeat(32) })).status, 401, 'unsigned demo token must be rejected');
+
   const identityA = await request('/api/auth/me', { token: visitorA.token });
   const identityB = await request('/api/auth/me', { token: visitorB.token });
   assert.equal(identityA.status, 200);

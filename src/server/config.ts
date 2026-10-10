@@ -22,6 +22,8 @@ export interface RuntimeConfig {
   publicDemoEnabled: boolean;
   /** Express `trust proxy` setting so req.ip is the real visitor behind a load balancer. */
   trustProxy: boolean | number | string;
+  /** Optional stable secret for signing demo session tokens (survives restarts/instances). */
+  demoSessionSecret: string;
   newsAdminBootstrap: {
     email: string;
     password: string;
@@ -116,6 +118,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     prescriptionSigningSecret,
     ghAdminKey,
     publicDemoEnabled,
+    demoSessionSecret: (env.DEMO_SESSION_SECRET || '').trim(),
     trustProxy: parseTrustProxy(env.TRUST_PROXY || '', isProduction),
     newsAdminBootstrap: {
       email: (env.NEWS_ADMIN_BOOTSTRAP_EMAIL || '').trim(),

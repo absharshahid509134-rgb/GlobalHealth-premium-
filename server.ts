@@ -6,7 +6,7 @@ import express from 'express';
 import { AUTH_REALMS, isPlatformRole, ROLE_DESTINATIONS, type PlatformRole } from './src/core/platformRoles';
 import path from 'path';
 import fs from 'fs';
-import { createHash, createHmac, randomBytes } from 'crypto';
+import { createHash, createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import { PHARMACY_PRODUCTS, VERIFIED_PHARMACY_PARTNERS } from './src/data/pharmacyProductsData';
@@ -704,6 +704,54 @@ async function startServer() {
   };
 
   const DEMO_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+
+  // ---- Self-healing demo session tokens ---------------------------------
+  // Demo tokens are HMAC-signed and embed the synthetic user id, so a server
+  // restart, redeploy or cold start can transparently re-create the sandbox
+  // for a visitor that still holds a valid token instead of throwing them
+  // back to "Your session has expired". The token only ever unlocks synthetic
+  // data. Logged-out/expired demo users are remembered so their tokens stay
+  // dead. Secret: DEMO_SESSION_SECRET > persisted runtime file > per-process.
+  const DEMO_SECRET_FILE = path.join(RUNTIME_DIR, 'demo-session.secret');
+  const demoSessionSecret: string = (() => {
+    if (config.demoSessionSecret) return config.demoSessionSecret;
+    try {
+      const existing = fs.existsSync(DEMO_SECRET_FILE) ? fs.readFileSync(DEMO_SECRET_FILE, 'utf8').trim() : '';
+      if (existing.length >= 32) return existing;
+    } catch { /* fall through to generate */ }
+    const generated = randomBytes(32).toString('hex');
+    try {
+      fs.mkdirSync(RUNTIME_DIR, { recursive: true });
+      fs.writeFileSync(DEMO_SECRET_FILE, generated, { encoding: 'utf8', mode: 0o600 });
+    } catch (err) {
+      logger.warn('demo session secret could not be persisted; demo sessions will not survive restarts server-side', {
+        reason: (err as Error)?.message
+      });
+    }
+    return generated;
+  })();
+  const DEMO_USER_PREFIX = 'usr-demo-';
+  const ENDED_DEMO_USER_IDS = new Set<string>();
+  const markDemoUserEnded = (userId: string) => {
+    if (!userId.startsWith(DEMO_USER_PREFIX)) return;
+    ENDED_DEMO_USER_IDS.add(userId);
+    if (ENDED_DEMO_USER_IDS.size > 20000) {
+      const oldest = ENDED_DEMO_USER_IDS.values().next().value;
+      if (oldest) ENDED_DEMO_USER_IDS.delete(oldest);
+    }
+  };
+  const demoSignature = (userId: string) =>
+    createHmac('sha256', demoSessionSecret).update(`demo-session:${userId}`).digest('hex').slice(0, 32);
+  const signDemoToken = (userId: string) => `gh-demo-${userId.slice(DEMO_USER_PREFIX.length)}-${demoSignature(userId)}`;
+  /** Returns the demo user id for a correctly signed demo token, else null. */
+  const parseDemoToken = (token: string): string | null => {
+    const match = /^gh-demo-([0-9a-f]{32})-([0-9a-f]{32})$/.exec(token);
+    if (!match) return null;
+    const userId = `${DEMO_USER_PREFIX}${match[1]}`;
+    const expected = Buffer.from(demoSignature(userId));
+    const given = Buffer.from(match[2]);
+    return expected.length === given.length && timingSafeEqual(expected, given) ? userId : null;
+  };
   const LOCAL_DEMO_USER_ID = 'usr-sarah-jenkins';
   const LOCAL_SECOND_DEMO_USER_ID = 'usr-alex-turner';
   const isReservedDemoUserId = (id: string) =>
@@ -761,8 +809,8 @@ async function startServer() {
     };
   }
 
-  function createEphemeralDemoUser(): ServerPublicUser {
-    const id = `usr-demo-${randomBytes(16).toString('hex')}`;
+  function createEphemeralDemoUser(existingId?: string): ServerPublicUser {
+    const id = existingId || `${DEMO_USER_PREFIX}${randomBytes(16).toString('hex')}`;
     const handle = id.slice(-8);
     return {
       id,
@@ -1711,8 +1759,12 @@ async function startServer() {
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
     if (token) {
       const session = ACTIVE_SESSIONS.get(token);
+      const signedDemoUserId = parseDemoToken(token);
       if (session?.isDemoSession) {
         cleanupEphemeralDemoAccount(session.userId);
+      } else if (signedDemoUserId) {
+        // Valid demo token whose sandbox was lost to a restart: still end it.
+        cleanupEphemeralDemoAccount(signedDemoUserId);
       } else {
         ACTIVE_SESSIONS.delete(token);
         DOCTOR_SESSIONS.delete(token);
@@ -1932,8 +1984,11 @@ async function startServer() {
     const authHeader = req.headers['authorization'] || '';
     const token = authHeader.replace(/^Bearer\s+/i, '').trim();
     if (!token) return null;
-    const session = ACTIVE_SESSIONS.get(token);
-    if (!session) return null;
+    let session = ACTIVE_SESSIONS.get(token);
+    if (!session) {
+      session = restoreDemoSession(token, req) || undefined;
+      if (!session) return null;
+    }
 
     // Isolated demo sessions have a short sliding TTL and are fully discarded
     // when they expire. Ordinary account expiry remains unchanged.
@@ -2053,27 +2108,15 @@ async function startServer() {
     });
   });
 
-  // Creates an isolated synthetic User Portal identity for this visitor. It
-  // issues no reusable credentials and writes none of its account/session or
-  // private domain data to persistent storage.
-  app.post('/api/auth/demo-login', (req, res) => {
-    if (!config.publicDemoEnabled) {
-      return res.status(404).json({ success: false, code: 'DEMO_DISABLED', error: 'The public demo is currently unavailable.' });
-    }
-    const limit = hitRateLimit('public-demo-login', String(req.ip || 'unknown'), 30, 60 * 60 * 1000);
-    if (!limit.allowed) {
-      res.setHeader('Retry-After', String(Math.ceil(limit.retryInMs / 1000)));
-      return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many demo sessions were started. Please try again later.' });
-    }
-
-    const user = createEphemeralDemoUser();
+  // Builds the in-memory sandbox (user, session and synthetic records) for a
+  // demo visitor. Used for new demo logins and for restoring after a restart.
+  function provisionDemoSandbox(user: ServerPublicUser, sessionId: string, userAgent: string): ServerSession {
     const now = new Date().toISOString();
-    const sessionId = secureToken('gh-demo');
     const session: ServerSession = {
       sessionId,
       userId: user.id,
       deviceName: 'Private demo browser session',
-      deviceType: /Mobi|Android/i.test(String(req.headers['user-agent'] || '')) ? 'Mobile' : 'Desktop',
+      deviceType: /Mobi|Android/i.test(userAgent) ? 'Mobile' : 'Desktop',
       browser: 'Web browser',
       os: 'Web',
       ipAddress: 'Private demo session',
@@ -2086,7 +2129,9 @@ async function startServer() {
     PUBLIC_USERS.set(user.id, user);
     ACTIVE_SESSIONS.set(sessionId, session);
 
+    const alreadySeeded = PRIVATE_DATA.has(user.id);
     const data = seedPrivateData(user.id, user.fullName);
+    if (alreadySeeded) return session;
     data.healthRecords.push(
       {
         id: `rec-${user.id.slice(-4)}-2`,
@@ -2108,6 +2153,37 @@ async function startServer() {
       }
     );
     seedConsentDemoForPatient(user.id, user.id.slice(-8).toUpperCase());
+    return session;
+  }
+
+  // Re-creates a demo sandbox for a validly signed token whose in-memory state
+  // vanished (restart, redeploy, cold start). Ended/expired demos stay ended.
+  function restoreDemoSession(token: string, req: any): ServerSession | null {
+    if (!config.publicDemoEnabled) return null;
+    const userId = parseDemoToken(token);
+    if (!userId || ENDED_DEMO_USER_IDS.has(userId)) return null;
+    const existing = PUBLIC_USERS.get(userId);
+    if (existing && !existing.isEphemeralDemo) return null;
+    const user = existing || createEphemeralDemoUser(userId);
+    return provisionDemoSandbox(user, token, String(req?.headers?.['user-agent'] || ''));
+  }
+
+  // Creates an isolated synthetic User Portal identity for this visitor. It
+  // issues no reusable credentials and writes none of its account/session or
+  // private domain data to persistent storage.
+  app.post('/api/auth/demo-login', (req, res) => {
+    if (!config.publicDemoEnabled) {
+      return res.status(404).json({ success: false, code: 'DEMO_DISABLED', error: 'The public demo is currently unavailable.' });
+    }
+    const limit = hitRateLimit('public-demo-login', String(req.ip || 'unknown'), 30, 60 * 60 * 1000);
+    if (!limit.allowed) {
+      res.setHeader('Retry-After', String(Math.ceil(limit.retryInMs / 1000)));
+      return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many demo sessions were started. Please try again later.' });
+    }
+
+    const user = createEphemeralDemoUser();
+    const sessionId = signDemoToken(user.id);
+    const session = provisionDemoSandbox(user, sessionId, String(req.headers['user-agent'] || ''));
 
     res.setHeader('Cache-Control', 'no-store, private');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
@@ -8303,6 +8379,7 @@ Request ID: ${requestId}`,
     );
 
   cleanupEphemeralDemoAccount = (userId: string) => {
+    markDemoUserEnded(userId);
     const user = PUBLIC_USERS.get(userId);
     if (!user?.isEphemeralDemo) {
       for (const [token, session] of ACTIVE_SESSIONS.entries()) {

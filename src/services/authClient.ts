@@ -94,6 +94,55 @@ export function clearAllGlobalSessions() {
   }
 }
 
+const DEMO_EMAIL_PATTERN = /@demo\.invalid$/i;
+
+/** True when the locally cached account is a synthetic public-demo visitor. */
+export function isStoredDemoSession(): boolean {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return false;
+    const user = JSON.parse(raw);
+    return typeof user?.email === 'string' && DEMO_EMAIL_PATTERN.test(user.email);
+  } catch {
+    return false;
+  }
+}
+
+let demoRenewal: Promise<boolean> | null = null;
+
+/**
+ * A demo sandbox is disposable. If the server lost it (restart, redeploy, idle
+ * expiry), quietly open a fresh one instead of showing "session expired".
+ * Concurrent callers share one request. Resolves false when it cannot renew.
+ */
+export function renewDemoSession(): Promise<boolean> {
+  if (demoRenewal) return demoRenewal;
+  demoRenewal = (async () => {
+    try {
+      const res = await fetch('/api/auth/demo-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: '{}',
+        cache: 'no-store'
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.success || !data.token || !data.user) return false;
+      storeSession(data.token, data.user);
+      try {
+        window.dispatchEvent(new CustomEvent('globalhealth:session-renewed', { detail: { user: data.user, token: data.token } }));
+      } catch {
+        // ignore
+      }
+      return true;
+    } catch {
+      return false;
+    } finally {
+      setTimeout(() => { demoRenewal = null; }, 0);
+    }
+  })();
+  return demoRenewal;
+}
+
 export class AuthError extends Error {
   code: string;
   status: number;
@@ -112,7 +161,7 @@ interface RequestOptions {
 }
 
 // Authenticated fetch. Throws AuthError with friendly messages on 401/403.
-export async function apiFetch<T = any>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function apiFetch<T = any>(path: string, options: RequestOptions = {}, _renewed = false): Promise<T> {
   const { method = 'GET', body, auth = true } = options;
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   const requestToken = auth ? getStoredToken() : null;
@@ -156,6 +205,10 @@ export async function apiFetch<T = any>(path: string, options: RequestOptions = 
   }
 
   if (res.status === 401) {
+    // Disposable demo sandbox lost server-side: open a new one and retry once.
+    if (auth && requestToken && !_renewed && getStoredToken() === requestToken && isStoredDemoSession()) {
+      if (await renewDemoSession()) return apiFetch<T>(path, options, true);
+    }
     const code = data?.code || 'AUTH_REQUIRED';
     const message =
       code === 'SESSION_EXPIRED'
