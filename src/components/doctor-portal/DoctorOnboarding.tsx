@@ -1,11 +1,14 @@
 import React, { useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, ShieldCheck, Stethoscope, AlertCircle, Activity } from 'lucide-react';
-import { DoctorProfile, FACILITIES, SPECIALTIES, APPOINTMENT_DURATIONS, CONSULTATION_LABEL, ConsultationType } from './doctorPortalData';
+import { ArrowLeft, ArrowRight, Check, ShieldCheck, Stethoscope, AlertCircle, Activity, Upload, FileCheck } from 'lucide-react';
+import { SPECIALTIES, APPOINTMENT_DURATIONS, CONSULTATION_LABEL, ConsultationType } from './doctorPortalData';
+import { doctorApi } from '../../services/doctorPortalClient';
 
 interface DoctorOnboardingProps {
   workEmail: string;
   fullName?: string;
-  onComplete: (doctor: DoctorProfile) => void;
+  phone?: string;
+  password?: string;
+  onSubmitted: (applicationId?: string) => void;
   onBack: () => void;
 }
 
@@ -13,13 +16,15 @@ const STEPS = ['Account', 'Professional', 'Credentials', 'Affiliations', 'Availa
 
 /** Guided 7-step professional onboarding: Account → Professional info →
  *  Credentials → Affiliations → Availability → Verification → Review & Activate. */
-export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, fullName = '', onComplete, onBack }) => {
+export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, fullName = '', phone: initialPhone = '', password = '', onSubmitted, onBack }) => {
   const [step, setStep] = useState(0);
   const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
 
   // Step 1 — account
   const [email, setEmail] = useState(workEmail);
-  const [phone, setPhone] = useState('');
+  const [phone, setPhone] = useState(initialPhone);
+  const [organization, setOrganization] = useState('');
 
   // Step 2 — professional
   const [name, setName] = useState(fullName);
@@ -44,8 +49,9 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
   const [consultTypes, setConsultTypes] = useState<ConsultationType[]>(['in_person']);
   const [duration, setDuration] = useState(30);
 
-  // Step 6 — verification docs (simulated secure upload)
-  const [uploaded, setUploaded] = useState<string[]>([]);
+  // Step 6 — verification documents. Files are sent only to the authenticated
+  // server review endpoint; they are never persisted in browser storage.
+  const [uploaded, setUploaded] = useState<Array<{ name: string; type: string; size: number; dataUrl: string }>>([]);
 
   const toggleConsult = (c: ConsultationType) =>
     setConsultTypes((prev) => (prev.includes(c) ? prev.filter((x) => x !== c) : [...prev, c]));
@@ -55,6 +61,7 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
     if (step === 0) {
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Enter a valid professional email.'); return false; }
       if (!phone.trim()) { setError('Enter your phone number.'); return false; }
+      if (!organization.trim()) { setError('Enter your organization or primary practice.'); return false; }
     }
     if (step === 1) {
       if (!name.trim()) { setError('Enter your full professional name.'); return false; }
@@ -64,7 +71,7 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
       if (!licenseAuthority.trim() || !licenseNumber.trim()) { setError('Enter your registration authority and number.'); return false; }
     }
     if (step === 5) {
-      if (uploaded.length === 0) { setError('Upload at least one supporting document (simulated).'); return false; }
+      if (uploaded.length === 0) { setError('Upload at least one supporting document for server-side review.'); return false; }
     }
     return true;
   };
@@ -72,33 +79,42 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
   const next = () => { if (validate()) setStep((s) => Math.min(s + 1, STEPS.length - 1)); };
   const back = () => { setError(''); setStep((s) => Math.max(s - 1, 0)); };
 
-  const activate = () => {
+  const submitApplication = async () => {
     if (!validate()) return;
-    const profile: DoctorProfile = {
-      id: `doc-${Date.now()}`,
-      userId: `usr-doc-${Date.now()}`,
-      displayName: name,
-      fullName: name,
-      professionalTitle: title,
+    if (password.length < 8) {
+      setError('Your account password is missing. Return to sign up and start again.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    const result = await doctorApi.submitApplication({
+      fullName: name.trim(),
+      professionalTitle: title.trim(),
       specialty,
-      subSpecialties: subSpecialty ? [subSpecialty] : [],
+      subSpecialty: subSpecialty.trim() || undefined,
       qualifications: qualifications.split(',').map((q) => q.trim()).filter(Boolean),
-      bio: bio || 'Professional biography pending.',
-      languages: languages.split(',').map((l) => l.trim()).filter(Boolean),
       yearsOfPractice: Number(years) || 0,
-      areasOfPractice: [specialty],
-      workEmail: email,
-      phone,
-      preferredContact: 'email',
-      verificationStatus: 'under_review',
-      verificationNextAction: 'Your credential documents are under review. This usually takes 2–3 working days.',
-      profileCompleteness: 83,
-      missingProfileFields: ['Add profile photograph'],
-      publicStatus: 'draft',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    onComplete(profile);
+      languages: languages.split(',').map((l) => l.trim()).filter(Boolean),
+      bio: bio.trim(),
+      email: email.trim().toLowerCase(),
+      phone: phone.trim(),
+      organization: organization.trim(),
+      registrationAuthority: licenseAuthority.trim(),
+      registrationNo: licenseNumber.trim(),
+      licenseExpiry: licenseExpiry || undefined,
+      affiliationFacility,
+      affiliationDepartment: affiliationDept.trim(),
+      consultationTypes: consultTypes,
+      appointmentDuration: duration,
+      credentialDocuments: uploaded.map(({ name: fileName, type, size, dataUrl }) => ({ name: fileName, contentType: type, sizeBytes: size, dataUrl })),
+      password,
+    });
+    setBusy(false);
+    if (!result.success) {
+      setError(result.error || 'The verification request could not be submitted. Please retry.');
+      return;
+    }
+    onSubmitted(result.applicationId);
   };
 
   const inputCls = 'w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-medical-500 focus:outline-none focus:ring-2 focus:ring-medical-500/20 transition';
@@ -162,6 +178,10 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
                   <label className={labelCls} htmlFor="ob-phone">Phone</label>
                   <input id="ob-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+91 …" className={inputCls} />
                 </div>
+                <div>
+                  <label className={labelCls} htmlFor="ob-org">Organization / primary practice</label>
+                  <input id="ob-org" value={organization} onChange={(e) => setOrganization(e.target.value)} placeholder="Hospital, clinic or professional practice" className={inputCls} />
+                </div>
               </div>
             )}
 
@@ -211,7 +231,7 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
             {step === 2 && (
               <div className="space-y-4">
                 <h2 className="text-xl font-extrabold text-slate-900">License / Credential Information</h2>
-                <p className="-mt-2 text-xs text-slate-500">Stored privately and verified by our credential team. Registration identifiers are never published.</p>
+                <p className="-mt-2 text-xs text-slate-500">Submitted privately for organization review. No verification or publication is asserted until the server-side review completes.</p>
                 <div>
                   <label className={labelCls} htmlFor="ob-la">Issuing authority</label>
                   <input id="ob-la" value={licenseAuthority} onChange={(e) => setLicenseAuthority(e.target.value)} className={inputCls} placeholder="e.g. Delhi Medical Council" />
@@ -234,11 +254,8 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
                 <h2 className="text-xl font-extrabold text-slate-900">Practice Affiliations</h2>
                 <p className="-mt-2 text-xs text-slate-500">Request an affiliation — the facility must approve before you are represented as working there.</p>
                 <div>
-                  <label className={labelCls} htmlFor="ob-fac">Facility</label>
-                  <select id="ob-fac" value={affiliationFacility} onChange={(e) => setAffiliationFacility(e.target.value)} className={inputCls}>
-                    <option value="">Select a facility…</option>
-                    {FACILITIES.map((f) => <option key={f.id} value={f.id}>{f.name} — {f.address}</option>)}
-                  </select>
+                  <label className={labelCls} htmlFor="ob-fac">Organization or practice</label>
+                  <input id="ob-fac" value={affiliationFacility} onChange={(e) => setAffiliationFacility(e.target.value)} className={inputCls} placeholder="Enter the organization that should review this affiliation" />
                 </div>
                 <div>
                   <label className={labelCls} htmlFor="ob-dept">Department</label>
@@ -287,19 +304,32 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
                 <h2 className="text-xl font-extrabold text-slate-900">Verification</h2>
                 <p className="-mt-2 text-xs text-slate-500">Uploaded documents are encrypted, access-controlled and never made public.</p>
                 <div className="rounded-2xl border-2 border-dashed border-medical-200 bg-medical-50/50 p-6 text-center">
-                  <Stethoscope className="mx-auto h-8 w-8 text-medical-500" />
+                  <Upload className="mx-auto h-8 w-8 text-medical-500" />
                   <p className="mt-2 text-xs font-bold text-medical-800">Registration certificate / license document</p>
-                  <p className="text-[11px] text-slate-500">PDF or image, max 10 MB (simulated secure upload)</p>
-                  <button
-                    type="button"
-                    onClick={() => { if (!uploaded.includes('license')) setUploaded((u) => [...u, 'license']); }}
-                    className="mt-3 cursor-pointer rounded-xl bg-medical-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-medical-700"
-                  >
-                    Upload document
-                  </button>
-                  {uploaded.map((u) => (
-                    <p key={u} className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
-                      <Check className="h-3 w-3" /> {u === 'license' ? 'License document attached' : u} — secured
+                  <p className="text-[11px] text-slate-500">PDF, PNG, JPEG or WEBP, maximum 2 MB per file. Files are submitted to the protected review endpoint.</p>
+                  <label className="mt-3 inline-flex cursor-pointer items-center gap-2 rounded-xl bg-medical-600 px-4 py-2 text-xs font-bold text-white transition hover:bg-medical-700">
+                    <Upload className="h-3.5 w-3.5" /> Choose document
+                    <input
+                      type="file"
+                      accept="application/pdf,image/png,image/jpeg,image/webp"
+                      className="sr-only"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        if (file.size > 2 * 1024 * 1024) { setError('Each credential document must be 2 MB or smaller.'); return; }
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const dataUrl = reader.result;
+                          if (typeof dataUrl === 'string') setUploaded((current) => [...current.filter((x) => x.name !== file.name), { name: file.name, type: file.type, size: file.size, dataUrl }]);
+                        };
+                        reader.readAsDataURL(file);
+                        e.currentTarget.value = '';
+                      }}
+                    />
+                  </label>
+                  {uploaded.map((file) => (
+                    <p key={file.name} className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-200">
+                      <FileCheck className="h-3 w-3" /> {file.name} · {(file.size / 1024).toFixed(0)} KB · ready for review
                     </p>
                   ))}
                 </div>
@@ -321,8 +351,9 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
                     ['Qualifications', qualifications || '—'],
                     ['Work email', email],
                     ['Phone', phone || '—'],
+                    ['Organization', organization || '—'],
                     ['Registration', `${licenseAuthority} · ${licenseNumber}`],
-                    ['Affiliation', FACILITIES.find((f) => f.id === affiliationFacility)?.name || 'None selected'],
+                    ['Affiliation request', affiliationFacility || 'None provided for review'],
                     ['Consultation types', consultTypes.map((c) => CONSULTATION_LABEL[c]).join(', ')],
                     ['Appointment duration', `${duration} min`],
                   ].map(([k, v]) => (
@@ -351,9 +382,9 @@ export const DoctorOnboarding: React.FC<DoctorOnboardingProps> = ({ workEmail, f
                   Continue <ArrowRight className="h-4 w-4" />
                 </button>
               ) : (
-                <button type="button" onClick={activate}
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-medical-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-medical-600/20 transition hover:bg-medical-700">
-                  <ShieldCheck className="h-4 w-4" /> Activate Workspace
+                <button type="button" onClick={submitApplication} disabled={busy}
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-xl bg-medical-600 px-5 py-2.5 text-sm font-bold text-white shadow-md shadow-medical-600/20 transition hover:bg-medical-700 disabled:cursor-not-allowed disabled:opacity-60">
+                  {busy ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <ShieldCheck className="h-4 w-4" />} Submit for credential review
                 </button>
               )}
             </div>

@@ -1,5 +1,6 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useDoctorPortal } from './doctorPortalData';
+import { doctorApi, type AuthorizedPatientSummary, type ServerEhrResponse } from '../../services/doctorPortalClient';
 
 /* ============================================================================
    Doctor Portal — clinical workspace data, seed data and actions.
@@ -36,7 +37,7 @@ export interface ClinicalNote {
   title: string;
   body: string;
   private?: boolean;
-  status: 'draft' | 'signed' | 'amended';
+  status: 'draft' | 'signed' | 'amended' | 'external';
 }
 export interface PrescriptionMedicine {
   id: string;
@@ -121,6 +122,12 @@ export interface PatientClinical {
   consentedScopes: ConsentedScope[];
   consentReason: string;
   consentHistory: { date: string; doctor: string; action: string; result: string }[];
+  /** Server-provided relationship metadata. It is not client authorization. */
+  accessExpiresAt?: string | null;
+  accessStatus?: 'active' | 'expiring' | 'emergency' | 'expired' | 'revoked';
+  accessPermissions?: Record<string, boolean | string>;
+  pendingConsentCount?: number;
+  dataSource?: 'server' | 'development-seed';
   vitals: VitalsRecord[];
   notes: ClinicalNote[];
   prescriptions: Prescription[];
@@ -333,6 +340,9 @@ interface ClinicalWorkspaceState {
   consultations: Consultation[];
   billing: BillingTransaction[];
   selectedPatientId: string | null;
+  loading: boolean;
+  error: string | null;
+  refreshPatients: () => Promise<void>;
   selectPatient: (id: string | null) => void;
   requestConsent: (patientId: string, reason: string, scopes: ConsentedScope[]) => void;
   respondConsent: (patientId: string, result: 'granted' | 'denied') => void;
@@ -356,105 +366,248 @@ export const useClinicalWorkspace = (): ClinicalWorkspaceState => {
   return ctx;
 };
 
+const localScopeForServerScope: Record<string, ConsentedScope> = {
+  profile: 'basic',
+  appointments: 'appointments',
+  clinical: 'history',
+  medications: 'history',
+  allergies: 'history',
+  labs: 'labs',
+  imaging: 'imaging',
+  prescriptions: 'prescriptions',
+  documents: 'documents',
+};
+
+const serverScopesToLocal = (scopes: string[]): ConsentedScope[] =>
+  Array.from(new Set(scopes.map((scope) => localScopeForServerScope[scope]).filter(Boolean)));
+
+const patientFromServerSummary = (summary: AuthorizedPatientSummary): PatientClinical => ({
+  id: summary.patientUserId,
+  identifier: summary.patientIdentifier || `PAT-${summary.patientUserId.replace(/^usr-/, '').toUpperCase()}`,
+  name: summary.patientName || 'Authorized patient',
+  age: 0,
+  sex: 'Other',
+  dob: '-',
+  bloodGroup: 'Not provided',
+  phone: '-',
+  email: '-',
+  status: 'active',
+  conditions: [],
+  allergies: [],
+  medications: [],
+  alerts: [{ severity: 'info', text: 'Clinical details load only after the server re-checks this active access grant.' }],
+  lastVisit: '-',
+  nextAppointment: '-',
+  consentStatus: summary.accessStatus === 'expired' ? 'expired' : 'granted',
+  consentedScopes: serverScopesToLocal(summary.scope),
+  consentReason: summary.modificationAccess,
+  consentHistory: [],
+  accessExpiresAt: summary.expiresAt,
+  accessStatus: summary.accessStatus,
+  accessPermissions: summary.permissions,
+  pendingConsentCount: summary.pendingConsentCount,
+  dataSource: summary.dataSource || 'server',
+  vitals: [],
+  notes: [],
+  prescriptions: [],
+  labs: [],
+  imaging: [],
+});
+
+const patientWithEhr = (patient: PatientClinical, response: ServerEhrResponse): PatientClinical => {
+  const records = response.records || [];
+  const notes: ClinicalNote[] = records
+    .filter((record) => ['Clinical Note', 'Consultation', 'Diagnosis', 'Treatment History'].includes(record.category))
+    .map((record) => ({
+      id: `CON-${record.recordId}`,
+      date: record.createdAt.slice(0, 10),
+      kind: record.category,
+      title: record.title,
+      body: record.latest || 'The source record did not provide a readable summary.',
+      status: 'external',
+    }));
+  const labs: LabOrder[] = records
+    .filter((record) => ['Laboratory Report', 'Lab Report'].includes(record.category))
+    .map((record) => ({
+      id: `LAB-${record.recordId}`,
+      patientId: patient.id,
+      category: record.category,
+      test: record.title,
+      indication: 'Source indication not provided',
+      priority: 'routine',
+      status: 'available',
+      orderedDate: record.createdAt.slice(0, 10),
+      clinicalNote: record.latest ? 'Source report available. Structured values are not exposed by this endpoint.' : undefined,
+    }));
+  const medications = response.patient.overview.currentMedications?.map((name) => ({
+    name,
+    dose: 'Source dose not provided',
+    frequency: 'Source frequency not provided',
+    since: 'Source date not provided',
+  })) || [];
+  const allergies = response.patient.overview.allergies || [];
+  return {
+    ...patient,
+    allergies,
+    medications,
+    notes,
+    labs,
+    accessStatus: response.grant.status === 'expired' ? 'expired' : patient.accessStatus,
+    accessExpiresAt: response.grant.expiresAt,
+    accessPermissions: response.grant.permissions,
+    consentedScopes: serverScopesToLocal(response.grant.scope),
+    consentStatus: response.grant.status === 'expired' ? 'expired' : 'granted',
+    alerts: [{ severity: 'info', text: response.emergency ? 'Emergency break-glass view is active and view-only.' : 'Protected data was returned by the authorized server endpoint.' }],
+  };
+};
+
+/* ---------------- Server-backed clinical store ---------------- */
+
 export const ClinicalWorkspaceProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { doctor, addAuditEvent } = useDoctorPortal();
-  const [patients, setPatients] = useState<PatientClinical[]>(seedPatients);
-  const [consultations, setConsultations] = useState<Consultation[]>(seedConsultations);
-  const [billing, setBilling] = useState<BillingTransaction[]>(seedBilling);
+  const [patients, setPatients] = useState<PatientClinical[]>([]);
+  const [consultations, setConsultations] = useState<Consultation[]>([]);
+  const [billing, setBilling] = useState<BillingTransaction[]>([]);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const audit = useCallback((action: Parameters<typeof addAuditEvent>[0]['action'], resourceId: string, patientId: string | null, detail?: string, outcome: 'success' | 'denied' | 'blocked' = 'success') => {
-    addAuditEvent({ actorId: doctor.id, actorRole: 'DOCTOR', action, resourceId, resourceType: 'CLINICAL', patientId, detail, outcome });
-  }, [addAuditEvent, doctor.id]);
-
-  const patchPatient = useCallback((id: string, patch: Partial<PatientClinical> | ((p: PatientClinical) => Partial<PatientClinical>)) => {
-    setPatients((prev) => prev.map((p) => (p.id === id ? { ...p, ...(typeof patch === 'function' ? patch(p) : patch) } : p)));
+  const refreshPatients = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await doctorApi.listAuthorizedPatients();
+      setPatients(response.patients.map(patientFromServerSummary));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Authorized patient data could not be loaded.');
+      setPatients([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    void refreshPatients();
+  }, [refreshPatients]);
+
+  const loadPatient = useCallback(async (patientId: string) => {
+    try {
+      const response = await doctorApi.getPatientEhr(patientId);
+      setPatients((current) => current.map((patient) => patient.id === patientId ? patientWithEhr(patient, response) : patient));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'This patient record could not be loaded.');
+      // Do not leave stale protected details visible after a failed re-check.
+      setPatients((current) => current.map((patient) => patient.id === patientId ? patientFromServerSummary({
+        patientUserId: patient.id,
+        patientName: patient.name,
+        patientIdentifier: patient.identifier,
+        accessStatus: 'expired',
+        grantedAt: '',
+        expiresAt: null,
+        scope: [],
+        canView: false,
+        lastViewedAt: null,
+        permissions: {},
+        modificationAccess: 'PATIENT_APPROVAL_REQUIRED',
+        pendingConsentCount: 0,
+        recordCategories: [],
+      }) : patient));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (selectedPatientId) void loadPatient(selectedPatientId);
+  }, [selectedPatientId, loadPatient]);
 
   const selectPatient = useCallback((id: string | null) => setSelectedPatientId(id), []);
 
-  const requestConsent = useCallback((patientId: string, reason: string, scopes: ConsentedScope[]) => {
-    patchPatient(patientId, (p) => ({
-      consentStatus: 'pending',
-      consentReason: reason,
-      consentHistory: [{ date: today(), doctor: 'Dr. Priya Nair', action: `Requested ${scopes.join(', ')}`, result: 'Pending patient decision' }, ...p.consentHistory],
-    }));
-    audit('CONSENT_REQUEST', patientId, patientId, reason);
-  }, [patchPatient, audit]);
+  const requestConsent = useCallback(async (patientId: string, reason: string, scopes: ConsentedScope[]) => {
+    try {
+      await doctorApi.createConsentRequest({
+        patientUserId: patientId,
+        kind: 'access_grant',
+        title: 'Request additional patient record access',
+        summary: `Requested scopes: ${scopes.join(', ')}`,
+        reason,
+        requestedScope: Array.from(new Set(scopes.flatMap((scope) => {
+          const serverScope = Object.entries(localScopeForServerScope).find(([, local]) => local === scope)?.[0];
+          return serverScope ? [serverScope] : [];
+        }))),
+        accessDurationDays: 365,
+        validityDays: 7,
+      });
+      setError('Consent request sent. Protected sections remain locked until the patient decides in-app.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'The consent request could not be sent.');
+    }
+  }, []);
 
-  const respondConsent = useCallback((patientId: string, result: 'granted' | 'denied') => {
-    patchPatient(patientId, (p) => ({
-      consentStatus: result,
-      consentedScopes: result === 'granted' ? ['basic', 'appointments', 'history', 'labs', 'imaging', 'prescriptions', 'documents'] : [],
-      consentHistory: [{ date: today(), doctor: 'Dr. Priya Nair', action: result === 'granted' ? 'Granted record access' : 'Denied record access', result: result === 'granted' ? 'Approved by patient' : 'Denied by patient' }, ...p.consentHistory],
-    }));
-    audit(result === 'granted' ? 'CONSENT_APPROVED' : 'CONSENT_DENIED', patientId, patientId);
-  }, [patchPatient, audit]);
+  const blockedClinicalWrite = useCallback((message: string) => {
+    setError(message);
+  }, []);
 
-  const addVitals = useCallback((patientId: string, v: Omit<VitalsRecord, 'id'>) => {
-    patchPatient(patientId, (p) => ({ vitals: [{ ...v, id: `v-${Date.now()}` }, ...p.vitals] }));
-    audit('VITALS_RECORDED', patientId, patientId, `${v.bp} · HR ${v.hr}`);
-  }, [patchPatient, audit]);
+  const respondConsent = useCallback((_patientId: string, _result: 'granted' | 'denied') => {
+    blockedClinicalWrite('Patient consent decisions are made by the authenticated patient in the User workspace. A doctor cannot approve access on the patient’s behalf.');
+  }, [blockedClinicalWrite]);
 
-  const addNote = useCallback((patientId: string, n: Omit<ClinicalNote, 'id' | 'date'>) => {
-    patchPatient(patientId, (p) => ({ notes: [{ ...n, id: `n-${Date.now()}`, date: today() }, ...p.notes] }));
-    audit('CLINICAL_NOTE_CREATED', patientId, patientId, n.title);
-  }, [patchPatient, audit]);
-
-  const addPrescription = useCallback((patientId: string, p: Omit<Prescription, 'id' | 'patientId'>) => {
-    patchPatient(patientId, (p2) => ({ prescriptions: [{ ...p, id: `rx-${Date.now()}`, patientId }, ...p2.prescriptions] }));
-    audit('PRESCRIPTION_CREATED', p.rxId, patientId, p.status);
-  }, [patchPatient, audit]);
-
-  const updatePrescriptionStatus = useCallback((id: string, status: PrescriptionStatus) => {
-    setPatients((prev) => prev.map((p) => ({ ...p, prescriptions: p.prescriptions.map((rx) => (rx.id === id ? { ...rx, status } : rx)) })));
-    audit(status === 'signed' ? 'PRESCRIPTION_SIGNED' : 'PRESCRIPTION_SENT_PHARMACY', id, null);
-  }, [audit]);
-
-  const addLabOrder = useCallback((patientId: string, l: Omit<LabOrder, 'id' | 'patientId' | 'status'>) => {
-    patchPatient(patientId, (p) => ({ labs: [{ ...l, id: `lab-${Date.now()}`, patientId, status: 'ordered' }, ...p.labs] }));
-    audit('LAB_ORDER_CREATED', l.test, patientId, `${l.category} · ${l.priority}`);
-  }, [patchPatient, audit]);
-
-  const reviewLab = useCallback((id: string, clinicalNote: string) => {
-    setPatients((prev) => prev.map((p) => ({ ...p, labs: p.labs.map((l) => (l.id === id ? { ...l, status: 'reviewed', clinicalNote } : l)) })));
-    audit('LAB_REVIEWED', id, null, clinicalNote);
-  }, [audit]);
-
-  const addImaging = useCallback((patientId: string, i: Omit<ImagingStudy, 'id' | 'patientId' | 'status' | 'reviewed'>) => {
-    patchPatient(patientId, (p) => ({ imaging: [{ ...i, id: `img-${Date.now()}`, patientId, status: 'ordered', reviewed: false }, ...p.imaging] }));
-    audit('IMAGING_ORDER_CREATED', i.title, patientId, `${i.modality}`);
-  }, [patchPatient, audit]);
-
-  const reviewImaging = useCallback((id: string, clinicalNote: string) => {
-    setPatients((prev) => prev.map((p) => ({ ...p, imaging: p.imaging.map((i) => (i.id === id ? { ...i, status: 'reviewed', reviewed: true, clinicalNote } : i)) })));
-    audit('IMAGING_REVIEWED', id, null, clinicalNote);
-  }, [audit]);
-
-  const saveConsultation = useCallback((c: Omit<Consultation, 'id'>) => {
-    setConsultations((prev) => [{ ...c, id: `con-${Date.now()}` }, ...prev]);
-    audit(c.status === 'completed' ? 'CONSULTATION_COMPLETED' : 'CONSULTATION_CREATED', c.patientId, c.patientId, c.complaint || c.type);
-  }, [audit]);
-
-  const addBilling = useCallback((b: Omit<BillingTransaction, 'id'>) => {
-    const id = `bill-${Date.now()}`;
-    setBilling((prev) => [{ ...b, id }, ...prev]);
-    audit('BILLING_CHANGED', id, b.patientId, `${b.service} ₹${b.amount}`);
-  }, [audit]);
+  const addVitals = useCallback((_patientId: string, _v: Omit<VitalsRecord, 'id'>) => {
+    blockedClinicalWrite('Vitals write is not enabled until the verified clinical data service is connected. No local record was created.');
+  }, [blockedClinicalWrite]);
+  const addNote = useCallback((_patientId: string, _n: Omit<ClinicalNote, 'id' | 'date'>) => {
+    blockedClinicalWrite('Clinical-note changes must use the server patient-approval workflow. No local record was created.');
+  }, [blockedClinicalWrite]);
+  const addPrescription = useCallback((_patientId: string, _p: Omit<Prescription, 'id' | 'patientId'>) => {
+    blockedClinicalWrite('Use the server prescription preparation and explicit signature flow. No local prescription was created.');
+  }, [blockedClinicalWrite]);
+  const updatePrescriptionStatus = useCallback((_id: string, _status: PrescriptionStatus) => {
+    blockedClinicalWrite('Prescription status changes must be confirmed by the server. No local status was changed.');
+  }, [blockedClinicalWrite]);
+  const addLabOrder = useCallback((_patientId: string, _l: Omit<LabOrder, 'id' | 'patientId' | 'status'>) => {
+    blockedClinicalWrite('Laboratory ordering is not enabled without a verified laboratory integration. No order was created.');
+  }, [blockedClinicalWrite]);
+  const reviewLab = useCallback((_id: string, _clinicalNote: string) => {
+    blockedClinicalWrite('Laboratory review acknowledgement is not enabled without a verified laboratory integration.');
+  }, [blockedClinicalWrite]);
+  const addImaging = useCallback((_patientId: string, _i: Omit<ImagingStudy, 'id' | 'patientId' | 'status' | 'reviewed'>) => {
+    blockedClinicalWrite('Imaging ordering is not enabled without a verified imaging integration. No order was created.');
+  }, [blockedClinicalWrite]);
+  const reviewImaging = useCallback((_id: string, _clinicalNote: string) => {
+    blockedClinicalWrite('Imaging review acknowledgement is not enabled without a verified imaging integration.');
+  }, [blockedClinicalWrite]);
+  const saveConsultation = useCallback((_c: Omit<Consultation, 'id'>) => {
+    blockedClinicalWrite('Consultation persistence requires the connected clinical notes API. No local note was saved.');
+  }, [blockedClinicalWrite]);
+  const addBilling = useCallback((_b: Omit<BillingTransaction, 'id'>) => {
+    blockedClinicalWrite('Billing data is unavailable because no verified billing API is connected.');
+  }, [blockedClinicalWrite]);
 
   const value = useMemo<ClinicalWorkspaceState>(() => ({
-    patients, consultations, billing, selectedPatientId,
-    selectPatient, requestConsent, respondConsent, addVitals, addNote,
-    addPrescription, updatePrescriptionStatus, addLabOrder, reviewLab,
-    addImaging, reviewImaging, saveConsultation, addBilling,
-  }), [patients, consultations, billing, selectedPatientId, selectPatient,
-    requestConsent, respondConsent, addVitals, addNote, addPrescription,
-    updatePrescriptionStatus, addLabOrder, reviewLab, addImaging, reviewImaging,
-    saveConsultation, addBilling]);
+    patients,
+    consultations,
+    billing,
+    selectedPatientId,
+    loading,
+    error,
+    refreshPatients,
+    selectPatient,
+    requestConsent,
+    respondConsent,
+    addVitals,
+    addNote,
+    addPrescription,
+    updatePrescriptionStatus,
+    addLabOrder,
+    reviewLab,
+    addImaging,
+    reviewImaging,
+    saveConsultation,
+    addBilling,
+  }), [patients, consultations, billing, selectedPatientId, loading, error, refreshPatients, selectPatient,
+    requestConsent, respondConsent, addVitals, addNote, addPrescription, updatePrescriptionStatus, addLabOrder,
+    reviewLab, addImaging, reviewImaging, saveConsultation, addBilling]);
 
   return <ClinicalContext.Provider value={value}>{children}</ClinicalContext.Provider>;
 };
-
 export const PATIENT_STATUS_LABEL: Record<PatientStatus, string> = {
   new: 'New', active: 'Active', follow_up: 'Follow-up', critical: 'Critical', pending_review: 'Pending Review',
 };

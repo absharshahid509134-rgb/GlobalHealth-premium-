@@ -69,13 +69,26 @@ export function clearStoredSession() {
  * stale identity after the user clicks the one global Logout.
  */
 export function clearAllGlobalSessions() {
-  try {
-    GLOBAL_SESSION_KEYS.forEach((key) => localStorage.removeItem(key));
+  // Professional portals historically used sessionStorage while the central
+  // User Portal uses localStorage. Clear both stores so switching accounts in
+  // the central auth flow cannot resurrect a stale clinical identity in a
+  // nested portal. Only opaque session keys are touched; clinical data is not
+  // stored here.
+  const clearStorage = (storage: Storage) => {
+    GLOBAL_SESSION_KEYS.forEach((key) => storage.removeItem(key));
     // Defensive: also drop any older/unknown namespace keys a feature may have
     // used in a previous build. These keys are session-scoped, never public.
-    Object.keys(localStorage)
+    Object.keys(storage)
       .filter((k) => /globalhealth_.*(session|token|auth)|doctor_portal_.*(session|token|active)|medauth_active_doctor|gh_.*(session|token)/i.test(k))
-      .forEach((k) => localStorage.removeItem(k));
+      .forEach((k) => storage.removeItem(k));
+  };
+  try {
+    clearStorage(localStorage);
+  } catch {
+    // localStorage may be unavailable while sessionStorage still works.
+  }
+  try {
+    clearStorage(sessionStorage);
   } catch {
     // storage unavailable — nothing to clear
   }

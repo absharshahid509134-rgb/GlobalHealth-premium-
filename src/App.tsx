@@ -629,7 +629,7 @@ export default function App() {
     if (overlayTab === 'doctor-portal' || overlayTab === 'doctor-console' || overlayTab === 'medauth') {
       return (
         <Suspense fallback={<RouteFallback fullScreen />}>
-          <DoctorPortalApp onBackToGlobalHealth={closeOverlay} />
+          <DoctorPortalApp onBackToGlobalHealth={closeOverlay} onGlobalLogout={logout} />
         </Suspense>
       );
     }

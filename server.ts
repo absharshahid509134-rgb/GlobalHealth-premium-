@@ -385,6 +385,30 @@ async function startServer() {
       return res.status(400).json({ success: false, error: 'The patient identifier is invalid.' });
     }
 
+    // Prescription preparation is still a protected patient-data operation.
+    // A verified doctor without an active, appropriately scoped grant must not
+    // use this gateway as a patient-discovery or consent bypass. Emergency
+    // access is view-only and can never prepare or transmit a prescription.
+    const prescriptionGrant = (DOCTOR_ACCESS.get(String(patientId)) || []).find((grant) =>
+      grant.doctorId === doctor.doctorId &&
+      grant.status === 'active' &&
+      !grant.isEmergency &&
+      grant.canView &&
+      (!grant.expiresAt || new Date(grant.expiresAt).getTime() >= Date.now())
+    );
+    if (!prescriptionGrant || !prescriptionGrant.scope.includes('prescriptions')) {
+      audit(req, {
+        patientUserId: String(patientId),
+        actorId: doctor.doctorId,
+        actorRole: 'DOCTOR',
+        eventType: 'EHR_ACCESS_DENIED',
+        resourceType: 'Prescription',
+        result: 'denied',
+        detail: 'Prescription preparation blocked because an active prescriptions scope was not present.'
+      });
+      return res.status(403).json({ success: false, code: 'PRESCRIPTION_SCOPE_REQUIRED', error: 'An active patient grant with prescription scope is required.' });
+    }
+
     // Evaluate potential contraindications
     const detectedInteractions: any[] = [];
     const medNames = medications.map((m: any) => (m.medicationName || '').toLowerCase());
@@ -2564,6 +2588,11 @@ async function startServer() {
     ]
   ]);
 
+  // Public onboarding applications are review records only. They never grant
+  // a session or clinical access; an authorized organization must provision a
+  // verified doctor through the protected activation process.
+  const DOCTOR_APPLICATIONS: Map<string, any> = new Map();
+
   const nowIso = () => new Date().toISOString();
   const APP_BASE = config.appUrl || `http://localhost:${PORT}`;
 
@@ -2605,6 +2634,16 @@ async function startServer() {
       `${prevHash}|${now}|${e.eventType}|${e.actorId}|${e.patientUserId || ''}|${e.requestId || ''}|${e.resourceId || ''}`
     );
     lastAuditHash.set(key, hash);
+    // Audit records carry a concise reason and state label, never full clinical
+    // payloads. The hash still commits to the actor/resource/request identity,
+    // while the protected record remains in the versioned clinical store.
+    const safeState = (value?: string) => {
+      if (!value) return value;
+      const compact = String(value).replace(/\s+/g, ' ').trim();
+      if (/^(pending|approved|rejected|executed|failed|conflict|active|revoked|expired|archived|cancelled|completed|denied|prepared|sent|signed|version\s+\d+|pending:|active\s*\(|conflict:)/i.test(compact)) return compact.slice(0, 180);
+      return 'redacted clinical value';
+    };
+    const safeDetail = e.detail ? String(e.detail).replace(/\s+/g, ' ').trim().slice(0, 300) : undefined;
     consentAudit.push({
       auditId: `AUD-${now.slice(0, 10).replace(/-/g, '')}-${hash.slice(0, 6)}`,
       timestamp: now, // server-generated — never from the client clock
@@ -2612,7 +2651,10 @@ async function startServer() {
       hash,
       sessionId,
       ipAddress: req?.ip || null,
-      ...e
+      ...e,
+      previousState: safeState(e.previousState),
+      newState: safeState(e.newState),
+      detail: safeDetail
     });
     return consentAudit[consentAudit.length - 1];
   };
@@ -3106,12 +3148,88 @@ async function startServer() {
     return res.json({ success: true, message: 'Your password has been reset. Please sign in with your new password.' });
   });
 
+  // ---- Professional onboarding application -----------------------------
+  // This endpoint accepts a review request but deliberately does not create an
+  // ACTIVE doctor account. Credential documents are stored behind the server
+  // attachment boundary and only their metadata is returned to the browser.
+  app.post('/api/doctor/auth/applications', (req: any, res: any) => {
+    const rate = hitRateLimit('doctor-application', String(req.ip || 'anonymous'), 5, 60 * 60 * 1000);
+    if (!rate.allowed) {
+      return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many verification requests. Please try again later.' });
+    }
+    const body = req.body || {};
+    const email = String(body.email || '').trim().toLowerCase();
+    const fullName = String(body.fullName || '').trim();
+    const password = String(body.password || '');
+    const registrationNo = String(body.registrationNo || '').trim();
+    const registrationAuthority = String(body.registrationAuthority || '').trim();
+    const organization = String(body.organization || '').trim();
+    if (!fullName || fullName.length < 3) return res.status(400).json({ success: false, error: 'Full professional name is required.' });
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(400).json({ success: false, error: 'A valid professional email is required.' });
+    if (password.length < 8) return res.status(400).json({ success: false, error: 'Password must be at least 8 characters.' });
+    if (!registrationNo || !registrationAuthority || !organization) return res.status(400).json({ success: false, error: 'Organization and registration details are required.' });
+    if ([...DOCTORS.values()].some((d) => (d.email || '').toLowerCase() === email)) {
+      return res.status(409).json({ success: false, code: 'ACCOUNT_EXISTS', error: 'An account already exists for this professional email. Please sign in or recover the account.' });
+    }
+    const duplicate = [...DOCTOR_APPLICATIONS.values()].find((a) => a.email === email && a.status === 'PENDING_REVIEW');
+    if (duplicate) return res.status(409).json({ success: false, code: 'APPLICATION_EXISTS', error: 'A verification request is already pending for this email.', applicationId: duplicate.applicationId });
+
+    const docs = Array.isArray(body.credentialDocuments) ? body.credentialDocuments.slice(0, 3) : [];
+    const attachments: any[] = [];
+    for (const doc of docs) {
+      const checked = validateAttachment(doc?.dataUrl, doc?.name);
+      if (checked.error) return res.status(400).json({ success: false, error: checked.error });
+      if (checked.ref) attachments.push(checked.ref);
+    }
+    if (!attachments.length) return res.status(400).json({ success: false, error: 'At least one credential document is required for review.' });
+
+    const applicationId = `DAPP-${Date.now().toString(36).toUpperCase()}-${randomBytes(3).toString('hex').toUpperCase()}`;
+    const application = {
+      applicationId,
+      status: 'PENDING_REVIEW',
+      submittedAt: nowIso(),
+      fullName: fullName.slice(0, 120),
+      email: email.slice(0, 160),
+      phone: String(body.phone || '').slice(0, 40),
+      organization: organization.slice(0, 160),
+      professionalTitle: String(body.professionalTitle || 'Clinician').slice(0, 100),
+      specialty: String(body.specialty || 'General Medicine').slice(0, 120),
+      qualifications: Array.isArray(body.qualifications) ? body.qualifications.map((q: unknown) => String(q).slice(0, 120)).slice(0, 12) : [],
+      registrationAuthority: registrationAuthority.slice(0, 160),
+      registrationNo: registrationNo.slice(0, 80),
+      licenseExpiry: body.licenseExpiry ? String(body.licenseExpiry).slice(0, 30) : undefined,
+      credentialDocuments: attachments,
+      passwordHash: hashSecret(applicationId, password),
+      reviewNotes: '',
+      affiliationFacility: String(body.affiliationFacility || '').slice(0, 80),
+      affiliationDepartment: String(body.affiliationDepartment || '').slice(0, 120),
+      consultationTypes: Array.isArray(body.consultationTypes) ? body.consultationTypes.slice(0, 8).map((v: unknown) => String(v)) : [],
+      appointmentDuration: Number(body.appointmentDuration) || 30
+    };
+    DOCTOR_APPLICATIONS.set(applicationId, application);
+    audit(req, {
+      actorId: applicationId,
+      actorRole: 'SYSTEM',
+      eventType: 'DOCTOR_APPLICATION_SUBMITTED',
+      resourceType: 'DoctorApplication',
+      resourceId: applicationId,
+      result: 'pending',
+      detail: 'Professional verification application submitted for organization review.'
+    });
+    return res.status(201).json({
+      success: true,
+      applicationId,
+      status: application.status,
+      message: 'Your verification request was submitted. An authorized organization must review it before any Doctor Portal account is activated.'
+    });
+  });
+
   // ---------------- RELATIONSHIP / PERMISSION HELPERS -------------------
   // An ACTIVE grant is a valid, unexpired, non-revoked relationship.
   const activeGrant = (patientUserId: string, doctorId: string): AccessGrant | undefined => {
     const list = DOCTOR_ACCESS.get(patientUserId) || [];
     return list.find((g) => {
-      if (g.doctorId !== doctorId || g.status !== 'active') return false;
+      if (g.doctorId !== doctorId || g.status !== 'active' || !g.canView) return false;
       if (g.expiresAt && new Date(g.expiresAt).getTime() < Date.now()) return false;
       return true;
     });
@@ -3135,9 +3253,9 @@ async function startServer() {
       REQUEST_EHR_ADD: live && !g.isEmergency,
       REQUEST_EHR_EDIT: live && !g.isEmergency,
       REQUEST_EHR_REMOVE: live && !g.isEmergency,
-      MODIFY_EHR: live ? 'CONSENT_REQUIRED' : 'NO_ACCESS',
-      DELETE_EHR: live ? 'CONSENT_REQUIRED' : 'NO_ACCESS',
-      APPROVE_EHR_CHANGE: live, // patient-side: the patient always decides
+      MODIFY_EHR: live ? (g.isEmergency ? 'VIEW_ONLY' : 'CONSENT_REQUIRED') : 'NO_ACCESS',
+      DELETE_EHR: live ? (g.isEmergency ? 'VIEW_ONLY' : 'CONSENT_REQUIRED') : 'NO_ACCESS',
+      APPROVE_EHR_CHANGE: live && !g.isEmergency, // patient-side: the patient always decides
       REVOKE_DOCTOR_ACCESS: live
     };
   };
@@ -3279,14 +3397,16 @@ async function startServer() {
     // patient list. (Prevents cross-patient discovery.)
     const patients: any[] = [];
     for (const [patientUserId, grants] of DOCTOR_ACCESS.entries()) {
-      const grant = grants.find((g) => g.doctorId === doctor.doctorId && grantDerivedStatus(g) !== 'revoked' && !(g.expiresAt && new Date(g.expiresAt).getTime() < Date.now()));
+      const grant = grants.find((g) => g.doctorId === doctor.doctorId && g.status === 'active' && g.canView && !(g.expiresAt && new Date(g.expiresAt).getTime() < Date.now()));
       if (!grant) continue;
       const user = PUBLIC_USERS.get(patientUserId);
       const reqs = (CONSENT_REQUESTS.get(patientUserId) || []).filter((r) => r.doctorId === doctor.doctorId);
       const records = (EHR_RECORDS.get(patientUserId) || []).filter((r) => r.status === 'active');
       patients.push({
         patientUserId,
-        patientName: user ? user.fullName : 'Patient',
+        patientIdentifier: `PAT-${patientUserId.replace(/^usr-/, '').toUpperCase()}`,
+        dataSource: IS_PRODUCTION ? 'server' : 'development-seed',
+        patientName: user ? user.fullName : 'Authorized patient',
         accessStatus: grant.isEmergency ? 'emergency' : grantDerivedStatus(grant),
         grantedAt: grant.grantedAt,
         expiresAt: grant.expiresAt,
@@ -3336,7 +3456,10 @@ async function startServer() {
     // Patient overview: only fields covered by the grant's scope.
     const overview: any = {};
     if (scope.includes('profile')) overview.name = user?.fullName || 'Patient';
-    if (scope.includes('allergies')) overview.allergies = ['Penicillin'];
+    if (scope.includes('allergies')) {
+      const privateProfile = PRIVATE_DATA.get(patientUserId) as any;
+      overview.allergies = Array.isArray(privateProfile?.ehr?.allergies) ? privateProfile.ehr.allergies.slice(0, 20).map((value: unknown) => String(value)) : [];
+    }
     if (scope.includes('medications')) overview.currentMedications = records.filter((r) => scopeForCategory(r.category) === 'medications').map((r) => r.title);
 
     audit(req, {
@@ -3372,12 +3495,13 @@ async function startServer() {
 
     return res.json({
       success: true,
+      dataSource: IS_PRODUCTION ? 'server' : 'development-seed',
       viewAccess: 'ACTIVE',
       modificationAccess: 'PATIENT_APPROVAL_REQUIRED',
       emergency: grant.isEmergency || null,
       emergencyExpiresAt: grant.isEmergency && grant.expiresAt ? grant.expiresAt : null,
       patient: {
-        name: user?.fullName || 'Patient',
+        name: scope.includes('profile') ? (user?.fullName || 'Authorized patient') : 'Authorized patient',
         overview,
         recordStatus: {
           viewAccess: 'Active',
@@ -3736,6 +3860,50 @@ async function startServer() {
     const doctor: ConsentDoctor = req.authDoctor;
     (DOCTOR_NOTIFICATIONS.get(doctor.doctorId) || []).forEach((n) => (n.read = true));
     return res.json({ success: true });
+  });
+
+  app.post('/api/doctor/notifications/:notificationId/read', requireDoctor, (req: any, res: any) => {
+    const doctor: ConsentDoctor = req.authDoctor;
+    const notification = (DOCTOR_NOTIFICATIONS.get(doctor.doctorId) || []).find((n) => n.id === String(req.params.notificationId));
+    if (!notification) return res.status(404).json({ success: false, error: 'Notification not found.' });
+    notification.read = true;
+    return res.json({ success: true });
+  });
+
+  // ---------------- DOCTOR: SCOPED AUDIT HISTORY ------------------------
+  // A doctor can see their own actions (including denied attempts) and events
+  // for an active relationship. No global audit export or patient discovery is
+  // possible through this endpoint.
+  app.get('/api/doctor/audit-history', requireDoctor, (req: any, res: any) => {
+    const doctor: ConsentDoctor = req.authDoctor;
+    const events = consentAudit
+      .filter((event) => {
+        if (event.actorId === doctor.doctorId) return true;
+        if (!event.patientUserId) return false;
+        expireStale(event.patientUserId);
+        return Boolean(activeGrant(event.patientUserId, doctor.doctorId));
+      })
+      .map((event) => ({
+        auditId: event.auditId,
+        timestamp: event.timestamp,
+        actorId: event.actorId,
+        actorRole: event.actorRole,
+        actorName: event.actorRole === 'DOCTOR' ? docName(event.actorId) : event.actorRole === 'PATIENT' ? 'Patient' : 'System',
+        eventType: event.eventType,
+        result: event.result,
+        resourceType: event.resourceType || null,
+        resourceId: event.resourceId || null,
+        patientId: event.patientUserId || null,
+        requestId: event.requestId || null,
+        recordCategory: event.recordCategory || null,
+        detail: redactAuditDetail(event),
+        accessPermission: event.accessPermission || null,
+        hash: event.hash || null,
+        prevHash: event.prevHash || null
+      }))
+      .sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1))
+      .slice(0, 200);
+    return res.json({ success: true, events });
   });
 
   // ---------------- EMERGENCY (BREAK-GLASS) ACCESS ----------------------
@@ -4535,6 +4703,20 @@ Request ID: ${requestId}`,
     }
   };
 
+  const redactAuditDetail = (event: any): string => {
+    const value = String(event?.detail || '').replace(/\s+/g, ' ').trim();
+    const clinical = Boolean(event?.patientUserId || event?.recordCategory || /EHR|CONSENT|PRESCRIPTION|LAB|IMAGING|MEDICATION|ACCESS/i.test(String(event?.resourceType || '') + ' ' + String(event?.eventType || '')));
+    if (clinical) return 'Protected clinical audit detail redacted; review the event type and outcome.';
+    return value.slice(0, 240);
+  };
+
+  const redactAuditState = (value: unknown): string | null => {
+    if (value == null || value === '') return null;
+    const compact = String(value).replace(/\s+/g, ' ').trim();
+    if (/^(pending|approved|rejected|executed|failed|conflict|active|revoked|expired|archived|cancelled|completed|denied|prepared|sent|signed|version\s+\d+|pending:|active\s*\(|conflict:)/i.test(compact)) return compact.slice(0, 180);
+    return 'redacted clinical value';
+  };
+
   const buildHistoryEvents = (user: ServerPublicUser) => {
     // A patient sees (a) events recorded against their own resources, and
     // (b) events of their own actions — but ONLY on their own resources.
@@ -4551,7 +4733,7 @@ Request ID: ${requestId}`,
         eventType: e.eventType,
         title: EVENT_TITLE(e),
         patientId: e.patientUserId || null, // own account id (used to verify the hash chain)
-        detail: e.detail || '',
+        detail: redactAuditDetail(e),
         timestamp: e.timestamp,
         actorId: e.actorId,
         actorRole: e.actorRole,
@@ -4561,10 +4743,10 @@ Request ID: ${requestId}`,
         resourceType: e.resourceType || null,
         resourceId: e.resourceId || null,
         recordCategory: e.recordCategory || null,
-        previousState: e.previousState || null,
-        newState: e.newState || null,
+        previousState: redactAuditState(e.previousState),
+        newState: redactAuditState(e.newState),
         accessPermission: e.accessPermission || null,
-        sessionId: e.sessionId || null,
+        sessionId: e.sessionId ? 'server-session' : null,
         hash: e.hash,
         prevHash: e.prevHash
       }));
@@ -8331,6 +8513,7 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
       doctors: [...DOCTORS.entries()],
       doctorSessions: [...DOCTOR_SESSIONS.entries()],
       doctorResetTokens: [...DOCTOR_RESET_TOKENS.entries()],
+      doctorApplications: [...DOCTOR_APPLICATIONS.entries()],
       consentRequests: [...CONSENT_REQUESTS.entries()],
       doctorAccess: [...DOCTOR_ACCESS.entries()],
       ehrRecords: [...EHR_RECORDS.entries()],
@@ -8368,6 +8551,7 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
     apply(persisted.doctors as any, (k, v) => DOCTORS.set(k, v));
     apply(persisted.doctorSessions as any, (k, v) => DOCTOR_SESSIONS.set(k, v));
     apply(persisted.doctorResetTokens as any, (k, v) => DOCTOR_RESET_TOKENS.set(k, v));
+    apply(persisted.doctorApplications as any, (k, v) => DOCTOR_APPLICATIONS.set(k, v));
     apply(persisted.consentRequests as any, (k, v) => CONSENT_REQUESTS.set(k, v));
     apply(persisted.doctorAccess as any, (k, v) => DOCTOR_ACCESS.set(k, v));
     apply(persisted.ehrRecords as any, (k, v) => EHR_RECORDS.set(k, v));

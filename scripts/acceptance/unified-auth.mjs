@@ -47,6 +47,13 @@ try {
     assert.equal(identity.body.portalRole, role);
     assert.equal(identity.body.user.portalRole, role);
     assert.match(identity.cache, /no-store/);
+    if (role === 'doctor') {
+      // The central professional flow must be consumable by the existing
+      // Doctor Portal entry point without a second credential prompt.
+      const doctorSession = await request('/api/doctor/auth/me', sessions[role]);
+      assert.equal(doctorSession.status, 200);
+      assert.equal(doctorSession.body.doctor.doctorId, 'doc-1');
+    }
     assert.ok(!JSON.stringify(identity.body).includes('passwordHash'));
     // Every seeded credential shown in the picker must be a working account,
     // not just a sample label. News accounts also complete simulated MFA.
@@ -55,6 +62,10 @@ try {
       additionalDemoSessions.push(demoToken);
       const demoIdentity = await request('/api/auth/me', demoToken);
       assert.equal(demoIdentity.body.portalRole, role, `${role} demo account ${demo.identifier}`);
+      if (role === 'doctor') {
+        const doctorSession = await request('/api/doctor/auth/me', demoToken);
+        assert.equal(doctorSession.status, 200, `Doctor Portal handoff for ${demo.identifier}`);
+      }
     }
     // Every source role is tested against all five workspace destinations.
     for (const destination of roles) {
@@ -96,7 +107,7 @@ try {
   assert.equal((await request('/api/auth/portal/user/constructor', null, {})).status, 400);
   const invalid = await request('/api/auth/me', 'invented-token');
   assert.equal(invalid.status, 401);
-  console.log('PASS: all seeded demo accounts across five roles, 25 workspace checks, 25 domain checks, MFA, identity restoration, account isolation, provisioning, invalid tokens, no-store.');
+  console.log('PASS: all seeded demo accounts across five roles, Doctor Portal token handoff, 25 workspace checks, 25 domain checks, MFA, identity restoration, account isolation, provisioning, invalid tokens, no-store.');
 } finally {
   for (const token of [...Object.values(sessions), ...additionalDemoSessions]) {
     assert.equal((await request('/api/auth/logout', token, {})).status, 200);
