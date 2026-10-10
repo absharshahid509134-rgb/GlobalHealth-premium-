@@ -68,6 +68,50 @@ async function startServer() {
   // Dynamic port binding for Cloud Run / Container deployment with 3000 default
   const PORT = config.port;
   const IS_PRODUCTION = config.isProduction;
+
+  // The development-only credential catalog backs the login-page demo picker.
+  // These entries mirror accounts seeded below; the catalog endpoint is hidden
+  // entirely in production and is never bundled into the browser application.
+  const DEVELOPMENT_DEMO_ACCOUNTS: Record<PlatformRole, Array<{ label: string; identifier: string; password: string }>> | null = config.nodeEnv === 'development' ? {
+    user: [
+      { label: 'Sarah Jenkins — patient demo', identifier: 'sarah.jenkins@example.com', password: 'Password123!' },
+      { label: 'Alex Turner — patient demo', identifier: 'alex.turner@example.com', password: 'Password123!' },
+    ],
+    doctor: [
+      { label: 'Dr. Anita Rao — internal medicine', identifier: 'doc-1', password: 'Doctor123!' },
+      { label: 'Dr. Vikram Mehta — cardiology', identifier: 'doc-2', password: 'Doctor123!' },
+      { label: 'Dr. Alexandra Chen — interventional cardiology', identifier: 'doc_alex_chen', password: 'chen123' },
+      { label: 'Dr. Robert Harrison — orthopaedic surgery', identifier: 'doc_rob_harrison', password: 'harr123' },
+      { label: 'Dr. Priya Sharma — endocrinology', identifier: 'doc_priya_sharma', password: 'priya123' },
+      { label: 'Dr. Marcus Vance — oncology', identifier: 'doc_marcus_vance', password: 'vance123' },
+    ],
+    hospital: [
+      { label: 'Apex Institute of Medical Sciences', identifier: 'apex_admin', password: 'Password@123' },
+      { label: 'Cleveland Clinic Abu Dhabi', identifier: 'cleveland_ad_admin', password: 'Password@123' },
+      { label: 'Singapore General Hospital', identifier: 'sgh_admin', password: 'Password@123' },
+      { label: 'Mayo Clinic Rochester', identifier: 'mayo_admin', password: 'Password@123' },
+      { label: 'St. Peter Royal Hospital', identifier: 'stpeter_admin', password: 'Password@123' },
+      { label: 'Metropolitan Academic Medical Center', identifier: 'metro_admin', password: 'Password@123' },
+      { label: 'All India Institute of Medical Sciences', identifier: 'aiims_admin', password: 'Password@123' },
+      { label: 'Charité — Universitätsmedizin Berlin', identifier: 'charite_admin', password: 'Password@123' },
+    ],
+    pharmacy: [
+      { label: 'Apex Central Clinical Dispensary — Dr. Ramanathan', identifier: 'dr.ramanathan@apexhealth.org', password: 'Pharmacy@123' },
+      { label: 'Apex Central Clinical Dispensary — Rohan M.', identifier: 'rohan.m@apexhealth.org', password: 'Pharmacy@123' },
+      { label: 'GlobalHealth Express Central Hub', identifier: 'mumbai.depot@globalhealth.org', password: 'Pharmacy@123' },
+      { label: 'Apollo Care Clinical Pharmacy', identifier: 'bangalore.pharmacy@apollocare.org', password: 'Pharmacy@123' },
+      { label: 'MedPlus Community Clinical Dispensary', identifier: 'hyderabad.hub@medpluscommunity.org', password: 'Pharmacy@123' },
+    ],
+    news: [
+      { label: 'Dr. Evelyn Carter — super administrator', identifier: 'admin@globalhealth.org', password: 'Password123!' },
+      { label: 'Marcus Sterling — news administrator', identifier: 'newsadmin@globalhealth.org', password: 'Password123!' },
+      { label: 'Sarah Chen — editor', identifier: 'editor@globalhealth.org', password: 'Password123!' },
+      { label: 'Dr. James Thorne — reviewer', identifier: 'reviewer@globalhealth.org', password: 'Password123!' },
+      { label: 'Elena Rostova — publisher', identifier: 'publisher@globalhealth.org', password: 'Password123!' },
+      { label: 'David Kim — author', identifier: 'author@globalhealth.org', password: 'Password123!' },
+    ],
+  } : null;
+
   for (const warning of config.warnings) {
     logger.warn('startup configuration warning', { warning });
   }
@@ -84,7 +128,11 @@ async function startServer() {
     if (req.method !== 'POST' || !isPlatformRole(role) || !Object.hasOwn(AUTH_REALMS[role], action)) {
       return res.status(400).json({ success: false, code: 'INVALID_AUTH_FLOW', error: 'Unknown authentication flow.' });
     }
-    const rate = hitRateLimit('unified-auth', String(req.ip || 'anonymous'), 40, 5 * 60 * 1000);
+    // Dev preview traffic and acceptance suites share one sandbox IP; keep
+    // the demo account picker usable across roles while retaining per-account
+    // brute-force limits in each realm. Production keeps the stricter cap.
+    const maxUnifiedRequests = config.nodeEnv === 'development' ? 200 : 40;
+    const rate = hitRateLimit('unified-auth', String(req.ip || 'anonymous'), maxUnifiedRequests, 5 * 60 * 1000);
     if (!rate.allowed) {
       res.setHeader('Retry-After', Math.ceil(rate.retryInMs / 1000));
       return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many authentication requests. Please try again later.' });
@@ -1850,6 +1898,17 @@ async function startServer() {
       });
     }
     return res.json({ success: true, user: identity.user, portalRole: identity.role, destination: ROLE_DESTINATIONS[identity.role] });
+  });
+
+  // Demo credentials are intentionally discoverable only in non-production
+  // runtimes so the centralized auth UI can populate its developer demo picker.
+  app.get('/api/auth/demo-accounts', (_req, res) => {
+    if (!DEVELOPMENT_DEMO_ACCOUNTS) {
+      return res.status(404).json({ success: false, code: 'NOT_FOUND', error: 'Not found.' });
+    }
+    res.setHeader('Cache-Control', 'no-store, private');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    return res.json({ success: true, environment: 'development', accounts: DEVELOPMENT_DEMO_ACCOUNTS });
   });
 
   // ---- Protected: create a server-scoped EHR access share token ----.

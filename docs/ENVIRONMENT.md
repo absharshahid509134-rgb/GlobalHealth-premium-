@@ -23,7 +23,9 @@ and the affected operation fails closed.
 
 ## Environments
 
-- **development**: local Vite middleware, demo user/session seeds, simulated
+- **development**: local Vite middleware, demo user/session seeds, and a
+  role-specific demo-account picker for all portals. `GET /api/auth/demo-accounts`
+  returns the synthetic seeded credentials only in development; simulated
   MFA/email delivery tokens may be returned for convenience.
 - **test**: no auto-start of the listener is enabled in unit tests; config
   defaults are safe.

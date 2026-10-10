@@ -34,6 +34,9 @@ central boundary is:
 
 ## Authentication
 
+- `GET /api/auth/demo-accounts`: synthetic role-specific demo credentials in
+  development only; returns `404` in production and test modes. Responses are
+  private and non-cacheable. Never use these accounts for real patient data.
 - Public users: bearer token returned by `/api/auth/*`, attached through
   `src/services/authClient.ts`.
 - Doctors/hospitals/pharmacy/news: separate bearer tokens scoped to one

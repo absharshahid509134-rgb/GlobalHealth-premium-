@@ -92,8 +92,8 @@ const FullScreenNewsWorkspace = lazy(() =>
 );
 
 /** Shared spinner shown while a lazy workspace chunk loads. */
-const RouteFallback: React.FC = () => (
-  <div className="flex min-h-[60vh] w-full items-center justify-center bg-white">
+const RouteFallback: React.FC<{ fullScreen?: boolean }> = ({ fullScreen = false }) => (
+  <div className={`flex ${fullScreen ? 'min-h-[100dvh]' : 'min-h-[60vh]'} w-full items-center justify-center bg-white`}>
     <div className="flex flex-col items-center gap-3">
       <span className="h-8 w-8 animate-spin rounded-full border-[3px] border-slate-200 border-t-emerald-600" />
       <span className="text-xs font-bold text-slate-500">Loading workspace…</span>
@@ -552,6 +552,13 @@ export default function App() {
   };
 
   const overlayMeta = overlayTab ? OVERLAY_META[overlayTab] : undefined;
+  const isAuthPage = currentTab === 'auth';
+
+  // A full-page authentication route always starts at the top of the viewport,
+  // including when launched from a scrolled public page.
+  useEffect(() => {
+    if (isAuthPage) window.scrollTo(0, 0);
+  }, [isAuthPage]);
 
   // Health-records destinations share one overlay header with a two-tab
   // sub-navigation: Personal health dashboard | Doctor access.
@@ -668,37 +675,42 @@ export default function App() {
       className="flex min-h-screen flex-col bg-white text-slate-900 antialiased font-sans transition-opacity duration-150"
       dir={direction}
     >
-      {/* Top Announcement Strip Disclaimer */}
-      <div className="bg-slate-50 border-b border-slate-200/80 py-1.5 px-4">
-        <div className="mx-auto max-w-7xl">
-          <MedicalDisclaimer compact />
-        </div>
-      </div>
+      {/* Keep the dedicated login experience clear of the public-site chrome. */}
+      {!isAuthPage && (
+        <>
+          {/* Top Announcement Strip Disclaimer */}
+          <div className="bg-slate-50 border-b border-slate-200/80 py-1.5 px-4">
+            <div className="mx-auto max-w-7xl">
+              <MedicalDisclaimer compact />
+            </div>
+          </div>
 
-      {/* Main Navbar */}
-      <Navbar
-        currentTab={overlayTab || currentTab}
-        onTabChange={handleNavTabChange}
-        savedCount={savedIds.length}
-        currentUser={currentUser}
-        accountDestination={ROLE_DESTINATIONS[activeRole] as NavigationTab}
-        onOpenAuthModal={handleOpenAuthModal}
-        onOpenAuthPage={handleOpenAuthPage}
-        onOpenSecuritySettings={handleOpenSecuritySettings}
-        onOpenHistoryTab={setHistoryInitialTab}
-        onLogout={async () => {
-          await logout();
-          setOverlayTab(null);
-          setCurrentTabState('home');
-          writeHash('home');
-        }}
-      />
+          {/* Main Navbar */}
+          <Navbar
+            currentTab={overlayTab || currentTab}
+            onTabChange={handleNavTabChange}
+            savedCount={savedIds.length}
+            currentUser={currentUser}
+            accountDestination={ROLE_DESTINATIONS[activeRole] as NavigationTab}
+            onOpenAuthModal={handleOpenAuthModal}
+            onOpenAuthPage={handleOpenAuthPage}
+            onOpenSecuritySettings={handleOpenSecuritySettings}
+            onOpenHistoryTab={setHistoryInitialTab}
+            onLogout={async () => {
+              await logout();
+              setOverlayTab(null);
+              setCurrentTabState('home');
+              writeHash('home');
+            }}
+          />
+        </>
+      )}
 
       {/* Primary Main View Container — stays mounted under overlays */}
-      <main className="flex-1">
+      <main className={isAuthPage ? 'min-h-[100dvh] flex-1' : 'flex-1'}>
         {/* One route-level Suspense boundary: every lazily code-split view below
             resolves through this fallback. */}
-        <Suspense fallback={<RouteFallback />}>
+        <Suspense fallback={<RouteFallback fullScreen={isAuthPage} />}>
         {/* Policy-update re-acceptance banner: when the accepted Terms/Privacy
             versions are older than the current published versions, surface a
             clear path to review and accept (spec: material-change re-acceptance). */}
@@ -723,7 +735,7 @@ export default function App() {
             </div>
           )}
 
-        {showSecureLoading && !overlayTab && <AuthLoading />}
+        {showSecureLoading && !overlayTab && <AuthLoading fullScreen={isAuthPage} />}
 
         {deniedPage && <div role="alert" className="p-16 text-center"><h2 className="text-2xl font-bold">Access denied</h2><p className="mt-3">Your account cannot access this workspace.</p></div>}
         {!showSecureLoading && !deniedPage && (
@@ -934,8 +946,8 @@ export default function App() {
         </Suspense>
       </main>
 
-      {/* Footer */}
-      <Footer onTabChange={handleNavTabChange} />
+      {/* The public-site footer stays out of the full-screen auth experience. */}
+      {!isAuthPage && <Footer onTabChange={handleNavTabChange} />}
 
       {/* Global 100-Language Selector Modal */}
       <LanguageModal />
@@ -960,7 +972,7 @@ export default function App() {
 
       {/* Floating AI Assistant — persistent bottom-right doctor-boy avatar.
           Hidden inside the AI workspace itself and inside fullscreen overlays. */}
-      {!overlayTab && currentTab !== 'ai-assistant' && (
+      {!isAuthPage && !overlayTab && currentTab !== 'ai-assistant' && (
         <GlobalHealthAIAssistant
           onOpen={() => {
             setAiInitialPrompt(undefined);
