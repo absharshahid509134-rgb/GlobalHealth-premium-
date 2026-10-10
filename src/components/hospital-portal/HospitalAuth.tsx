@@ -105,7 +105,7 @@ export const HospitalAuth: React.FC<HospitalAuthProps> = ({ onBackToGlobalHealth
 
             {phase === 'login' && <LoginForm onLogin={handleLogin} onCreate={() => go('signup')} onForgot={() => go('forgot')} onContactSupport={() => go('signup')} />}
             {phase === 'signup' && <SignupForm onSignup={handleSignup} onBack={() => go('login')} onVerify={() => go('verify')} />}
-            {phase === 'forgot' && <ForgotForm onBack={() => go('login')} onSent={() => { go('login'); setInfo("If an account exists for that email, we've sent a password reset link. Check your inbox (demo: the flow completes locally)."); }} />}
+            {phase === 'forgot' && <ForgotForm onBack={() => go('login')} onSent={() => { go('login'); setInfo("If an account exists for that email, we've sent a password reset link. Check your inbox."); }} />}
             {phase === 'reset' && <ResetForm onBack={() => go('login')} onDone={() => { go('login'); setInfo('Password updated. All other sessions were signed out. Sign in with your new password.'); }} />}
             {phase === 'verify' && <VerifyForm onVerify={handleVerify} onBack={() => go('signup')} />}
           </div>
@@ -178,9 +178,6 @@ const LoginForm: React.FC<{ onLogin: (id: string, pw: string) => void; onCreate:
           <button type="button" onClick={onCreate} className="cursor-pointer font-bold text-medical-700 hover:underline">Create Hospital Account</button>
         </div>
         <p className="text-center text-[11px] text-slate-400">Need help? <button type="button" onClick={() => { window.location.hash = '#hospital-portal/verify'; }} className="cursor-pointer font-bold text-medical-700 hover:underline">Contact Portal Support</button></p>
-        <div className="rounded-xl border border-medical-100 bg-medical-50/60 p-3 text-[11px] text-medical-800">
-          <strong>Demo:</strong> <code className="font-mono">admin@ghmc.example.com</code> with any 8+ character password opens the verified hospital workspace.
-        </div>
       </div>
     </form>
   );

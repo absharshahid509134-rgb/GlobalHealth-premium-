@@ -3,6 +3,12 @@
 Audit date: 2026-09-04
 Scope: whole repository (frontend, backend, services, data, docs, build, deploy)
 
+Update (2026-10-10): all public demo sandboxes, default account seeds and embedded
+quick-fill credentials have been removed. Startup now prunes known/marked demo
+identities and their sessions from legacy runtime stores. The demo-account
+findings below describe the historical audit baseline, not the current account
+policy. See [Unified authentication](unified-authentication.md) for current behavior.
+
 Honest status legend: `VERIFIED`, `PARTIAL`, `BLOCKED`, `NOT_IMPLEMENTED`.
 
 ---

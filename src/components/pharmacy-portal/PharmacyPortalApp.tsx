@@ -317,10 +317,6 @@ export const PharmacyPortalApp: React.FC<PharmacyPortalAppProps> = ({
             button: 'bg-teal-600 hover:bg-teal-700 text-white',
             chip: 'border-teal-200 bg-teal-50 text-teal-900 hover:bg-teal-100',
           }}
-          demoAccounts={[
-            { id: 'owner', label: 'Dr. Ramanathan (Owner)', identifier: 'dr.ramanathan@apexhealth.org', password: 'Pharmacy@123' },
-            { id: 'pharmacist', label: 'Rohan M. (Pharmacist)', identifier: 'rohan.m@apexhealth.org', password: 'Pharmacy@123' },
-          ]}
           onValidate={async (identifier, password) => {
             // Credentials are verified by the BACKEND only — the server issues
             // a partner session bound to exactly one verified pharmacy.

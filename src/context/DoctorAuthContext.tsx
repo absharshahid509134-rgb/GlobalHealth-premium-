@@ -189,18 +189,7 @@ export const DoctorAuthProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       const stored = localStorage.getItem('doctor_portal_reset_tokens_v2');
       if (stored) return JSON.parse(stored);
     } catch {}
-    return [
-      {
-        token: 'RST-DOC-98231-774B',
-        username: 'doc_alex_chen',
-        officialEmail: 'a.chen@medauth.org',
-        issuedAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
-        isUsed: false,
-        usedAt: null,
-        isRevoked: false
-      }
-    ];
+    return [];
   });
 
   // 5. Audit Logs State

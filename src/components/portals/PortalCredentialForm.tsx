@@ -1,12 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, ShieldCheck, Sparkles, User, UserPlus } from 'lucide-react';
-
-export interface PortalDemoAccount {
-  id: string;
-  label: string;
-  identifier: string;
-  password: string;
-}
+import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, ShieldCheck, User, UserPlus } from 'lucide-react';
 
 export interface PortalCredentialFormProps {
   title: string;
@@ -22,7 +15,6 @@ export interface PortalCredentialFormProps {
   identifierLabel: string;
   identifierPlaceholder?: string;
   passwordLabel?: string;
-  demoAccounts: PortalDemoAccount[];
   mfaNote?: string;
   onValidate: (
     identifier: string,
@@ -51,7 +43,6 @@ export const PortalCredentialForm: React.FC<PortalCredentialFormProps> = ({
   identifierLabel,
   identifierPlaceholder = '',
   passwordLabel = 'Password',
-  demoAccounts,
   mfaNote,
   onValidate,
   onSuccess,
@@ -69,14 +60,6 @@ export const PortalCredentialForm: React.FC<PortalCredentialFormProps> = ({
 
   const iconWrap = accent?.iconWrap || 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white';
   const button = accent?.button || 'bg-emerald-600 hover:bg-emerald-700 text-white';
-  const chip = accent?.chip || 'border-emerald-200 bg-emerald-50 text-emerald-900 hover:bg-emerald-100';
-
-  const applyDemo = (demo: PortalDemoAccount) => {
-    setIdentifier(demo.identifier);
-    setPassword(demo.password);
-    setError(null);
-  };
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (checking) return;
@@ -222,27 +205,6 @@ export const PortalCredentialForm: React.FC<PortalCredentialFormProps> = ({
             )}
           </form>
 
-          {/* Demo accounts */}
-          {demoAccounts.length > 0 && (
-            <div className="mt-6 border-t border-slate-100 pt-4">
-              <div className="mb-2 flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                <Sparkles className="h-3 w-3" />
-                Demo accounts — tap to fill
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {demoAccounts.map((demo) => (
-                  <button
-                    key={demo.id}
-                    type="button"
-                    onClick={() => applyDemo(demo)}
-                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold transition cursor-pointer ${chip}`}
-                  >
-                    {demo.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         {onBack && (

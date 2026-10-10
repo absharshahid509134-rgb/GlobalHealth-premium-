@@ -146,8 +146,8 @@ export const DoctorConsentConsole: React.FC<{ onExit: () => void }> = ({ onExit 
   // permission check. Logging out of GlobalHealth also destroys this token.
   const { isAuthenticated, requireAuth, user: globalUser } = useAuth();
   const [doctor, setDoctor] = useState<DoctorInfo | null>(null);
-  const [identifier, setIdentifier] = useState('doc-1');
-  const [password, setPassword] = useState('Doctor123!');
+  const [identifier, setIdentifier] = useState('');
+  const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');

@@ -53,68 +53,35 @@ resource/organization authorization. Hospital and pharmacy record endpoints keep
 cross-organization ownership checks. User API guards reject professional sessions;
 User permissions are no longer assigned to professional identities.
 
-The previous Doctor/Hospital/Pharmacy/CMS prototype components remain in source,
-but are deliberately **not mounted** by the application: some hold shared demo
-state, client-side permissions, or embedded credential pages. The new shell does
-not preserve every prototype action. Its records are read-only summaries; advanced
-clinical editing, hospital operational modules, inventory editing, and CMS authoring
-must be migrated to account-scoped server APIs before being re-enabled. This is a
-security boundary, not a claim that all prototype functionality is migrated.
+Legacy portal prototype components remain in source. The Doctor and Hospital
+routes retain their server-verified session adapters; demo account seeds and
+credential shortcuts have also been removed from those adapters. Other prototype
+operations and sample catalog data are not evidence that every advanced clinical,
+operational, inventory or publishing feature has been migrated to account-scoped
+server APIs. The server remains the authentication and authorization authority.
 
-## Public portal demos and development accounts
+## Account policy and legacy demo removal
 
-- The User login presents **Explore the User Portal demo** when the server
-  returns `demoSessionAvailable: true` from `GET /api/auth/demo-accounts`. Start
-  it with `POST /api/auth/demo-login`; no credential, shared password, or
-  production account is exposed. Each request creates a unique synthetic user
-  ID and opaque server session with its own sample profile, appointments,
-  health records, doctor-consent example, notifications, and private data.
-- Demo data is temporary. It is held in process memory, omitted from all
-  account/domain/EHR-share/AI persistence files, and fully removed on logout or
-  after four hours without activity. Restarting the server also clears it.
-  A visible banner warns that the signed-in identity is a demo and marketplace
-  orders are disabled. Do not enter real health information.
-- `PUBLIC_DEMO_ENABLED` defaults to enabled outside tests; set it to `false` to
-  hide the login option and disable `POST /api/auth/demo-login`. The endpoint
-  is rate-limited and responses use `Cache-Control: no-store, private` and
-  `X-Robots-Tag: noindex, nofollow`.
-- **Professional portal demos.** The Doctor, Hospital, Pharmacy and News
-  Management login screens each present **Explore the <Role> Portal demo**
-  (same wording and privacy notice as the User demo). Start one with
-  `POST /api/auth/demo-login` and `{ "role": "doctor" | "hospital" | "pharmacy" | "news" }`;
-  omit `role` (or send `"user"`) for the User demo. Unknown roles return 400.
-  - Each request creates a unique synthetic identity and an HMAC-signed opaque
-    token (`gh-demo-<role>-<32 hex>-<32 hex>`). `/api/auth/me` resolves it to
-    that role with `isDemoAccount: true`, so wrong-role navigation is still
-    Access denied.
-  - The sandbox lives in `src/server/demoPortal.ts` (memory only). It is **not**
-    a session in any real doctor/hospital/pharmacy/news realm and never touches
-    the real doctor registry, hospital registry, pharmacy inventory, consent
-    records or news queue, so nothing a visitor does reaches real
-    organizations, patients or the public site. Real realm endpoints reject
-    the token (401) and `/api/me/*` returns 403.
-  - The demo opens an isolated workspace (`PrivatePortal` in demo mode) with
-    seeded sample data per role — Doctor: patients, appointments,
-    prescriptions, consent requests; Hospital: bed capacity, departments,
-    appointment requests, ambulances; Pharmacy: inventory, orders,
-    prescription review; News: articles, authority submissions, reported
-    content. Visitors can add, change the status of, and remove items through
-    `POST /api/portals/:role/demo/items`,
-    `PATCH|DELETE /api/portals/:role/demo/items/:itemId` (validated,
-    length-limited, max 25 items per section, rate-limited). "Published (demo
-    only)" never reaches the public news feed; marketplace orders stay disabled.
-  - Sandboxes end on logout, after four hours without activity (sliding), or on
-    restart. An ended token stays dead; a still-valid token after a restart
-    silently reopens a fresh sandbox, and the browser renews an expired demo of
-    the same role automatically.
-  - Controlled by the same `PUBLIC_DEMO_ENABLED` flag. Run
-    `npm run accept:demo-portals` against a dev server for the acceptance checks.
-- The Sarah/Alex User credentials and seeded Doctor, Hospital, Pharmacy, and
-  News Management role-account pickers are development-only. The
-  `GET /api/auth/demo-accounts` response may include those credentials only in
-  development; production returns availability metadata and never returns
-  development passwords. News demo administrators still complete MFA; any
-  simulated verification code is available only from the development server.
+- Only registered users and explicitly provisioned professional accounts can
+  sign in. All five login forms start with blank credentials; demo buttons,
+  credential pickers and quick-fill shortcuts have been removed.
+- No environment seeds demo accounts. The passwordless User/Doctor/Hospital/
+  Pharmacy/News sandboxes and their session renewal/restore logic are removed.
+  `GET /api/auth/demo-accounts`, `POST /api/auth/demo-login`, and the old portal
+  sandbox mutation routes return JSON 404. Old demo tokens return 401 when used
+  for authenticated identity or workspace requests.
+- `src/core/legacyDemoAccounts.ts` lists the reserved legacy identifiers for
+  removal only; it does not contain passwords or create accounts.
+  `src/server/accountMigration.ts` prunes these identities, explicitly marked
+  synthetic accounts, and their sessions/capabilities from persisted stores at
+  server startup. Real users are never matched solely by name or ordinary email.
+- Browser startup removes cached fixture accounts and pre-issued fixture
+  activation/recovery tokens before providers restore local state. New real
+  users start with empty health records and appointments, not sample clinical
+  facts. Existing real records are retained.
+- `PUBLIC_DEMO_ENABLED` and `DEMO_SESSION_SECRET` are retired; setting them cannot
+  re-enable demo access. Restart updated server instances to apply the migration
+  to their persisted runtime stores.
 
 ## Registration and deployment requirements
 
@@ -127,42 +94,43 @@ security boundary, not a claim that all prototype functionality is migrated.
   `x-admin-key`. Never place this key in a browser, frontend environment variable,
   or public invitation link. A signed, single-use invitation service can replace
   this operator-only provisioning gate later.
-- Fresh production startups no longer seed Doctor/Hospital/Pharmacy demo logins.
-  Do not deploy development runtime stores into production. Existing persisted
-  accounts still load: audit and remove legacy unverified/demo accounts before
-  rollout. Removing initial seeds cannot retroactively verify persisted accounts.
+- Startup removes reserved/marked demo identities in every environment. Existing
+  real accounts still load; removing demos does not retroactively verify other
+  unverified accounts. Explicit News administrator bootstrap configuration is
+  supported in all environments without a shared fallback password.
 - Professional recovery and News MFA retain the existing token/challenge logic,
   but **production message delivery is not integrated in this repository**.
   Connect an email/SMS delivery provider before relying on those flows in
-  production. Development-only returned tokens/codes are not shown by the new UI
-  and are never returned in production. The UI does not bypass verification.
+  production. Development-only News MFA codes can be shown for diagnostics;
+  recovery tokens/codes are never returned in production. The UI does not bypass
+  verification.
 - Existing bearer-token browser storage and single-process file-backed session
   persistence are retained. Use HTTPS. For multi-instance production deployments,
   migrate the realm adapters to a shared transactional session store and evaluate
   an HttpOnly-cookie/CSRF design; this change does not implement those migrations.
-- The public demo session is memory-only. Keep it on one server instance, or use
-  sticky routing for the lifetime of a session. Sticky routing does not survive
-  process restarts; shared-store support is required before scaling if demo
-  sessions must remain seamless. See [Environment Configuration](ENVIRONMENT.md).
 
 ## Validation
 
-```
+```sh
 npm test
+npm run lint
 npm run build
-npm run dev
-# Against a single-process server with PUBLIC_DEMO_ENABLED=true:
-npm run accept:demo
-# Against a development fixture server only:
 npm run accept:auth
+npm run accept:no-demo
 ```
 
-The acceptance script tests all 25 role/workspace combinations, all 25 role/domain
-API combinations, MFA (including wrong code and no pre-MFA session), identity
+Both acceptance suites start and stop their own isolated servers and remove
+all test identities with their temporary runtime directories. No application
+demo endpoint, running development server or production credentials are used.
+
+`accept:auth` tests all 25 role/workspace combinations, all 25 role/domain API
+combinations, MFA (including wrong code and no pre-MFA session), identity
 restoration, same-role account separation, cross-hospital/pharmacy resource denial,
 privileged self-provisioning rejection, cache headers, invalid tokens, and global
-logout/revocation. Fixtures are development-only; do not run this script against
-production. `TEST_BASE_URL` can override the local server address.
+logout/revocation. `accept:no-demo` tests fresh and upgraded development/test/
+production runtimes: retired credentials/tokens, removed endpoints, persisted
+cleanup, preservation of real records/sessions and configured administrators,
+and normal verified registration.
 
 Manual browser checks: each role's central login; refresh and back/forward; role
 selection in signup/recovery; legacy deep links; cross-role hash changes; logout

@@ -131,16 +131,7 @@ export const DoctorAuthPage: React.FC<DoctorAuthPageProps> = ({
     }
   };
 
-  const fillTestCredentials = (username: string, pass: string) => {
-    setLoginIdentifier(username);
-    setLoginPassword(pass);
-    setLoginError(null);
-    setLockoutNotice(null);
-  };
-
-  // ============================================================================
-  // TAB 2: FORGOT PASSWORD STATE
-  // ============================================================================
+  // Password recovery remains available for provisioned accounts.
   const [forgotIdentifier, setForgotIdentifier] = useState('');
   const [forgotSubmitted, setForgotSubmitted] = useState(false);
   const [forgotMessage, setForgotMessage] = useState('');
@@ -785,46 +776,6 @@ export const DoctorAuthPage: React.FC<DoctorAuthPageProps> = ({
               </p>
             </div>
 
-            {/* Fast Test Credential Quick-Launcher */}
-            <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-slate-800">Quick Test Credentials</span>
-                <span className="text-[10px] text-slate-500 font-mono">1-Click Fill</span>
-              </div>
-              <div className="space-y-1.5">
-                <button
-                  onClick={() => {
-                    setActiveTab('login');
-                    fillTestCredentials('doc_alex_chen', 'chen123');
-                  }}
-                  className="w-full flex items-center justify-between p-2 rounded-lg bg-white border border-slate-200 hover:border-emerald-500 text-left transition cursor-pointer"
-                >
-                  <div>
-                    <div className="font-semibold text-slate-900">Dr. Alexandra Chen (Active)</div>
-                    <div className="text-[10px] text-slate-500 font-mono">@doc_alex_chen • pass: chen123</div>
-                  </div>
-                  <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded">
-                    Fill
-                  </span>
-                </button>
-
-                <button
-                  onClick={() => {
-                    setActiveTab('activate');
-                    setActivationTokenInput('ACT-DOC-2026-CHOWDHURY-88F9');
-                  }}
-                  className="w-full flex items-center justify-between p-2 rounded-lg bg-white border border-teal-200 hover:border-teal-500 text-left transition cursor-pointer"
-                >
-                  <div>
-                    <div className="font-semibold text-slate-900">Dr. Arthur Chowdhury (Approved)</div>
-                    <div className="text-[10px] text-slate-500 font-mono">Token: ACT-DOC-2026-CHOWDHURY-88F9</div>
-                  </div>
-                  <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded">
-                    Activate
-                  </span>
-                </button>
-              </div>
-            </div>
           </div>
 
           {/* ========================================================================= */}
@@ -881,7 +832,7 @@ export const DoctorAuthPage: React.FC<DoctorAuthPageProps> = ({
                         required
                         value={loginIdentifier}
                         onChange={(e) => setLoginIdentifier(e.target.value)}
-                        placeholder="Enter your doctor username (e.g. doc_alex_chen)"
+                        placeholder="Enter your doctor username (your registered username)"
                         className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 focus:outline-none"
                       />
                     </div>
@@ -996,7 +947,7 @@ export const DoctorAuthPage: React.FC<DoctorAuthPageProps> = ({
                         required
                         value={forgotIdentifier}
                         onChange={(e) => setForgotIdentifier(e.target.value)}
-                        placeholder="Enter username or official email (e.g. a.chen@medauth.org)"
+                        placeholder="Enter username or official email (your registered email)"
                         className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-emerald-600 focus:ring-1 focus:ring-emerald-600 focus:outline-none"
                       />
                     </div>
@@ -1231,45 +1182,6 @@ export const DoctorAuthPage: React.FC<DoctorAuthPageProps> = ({
                         </button>
                       </div>
 
-                      {/* Demo Quick Fills for realistic testing */}
-                      <div className="pt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-slate-500">
-                        <span>Test tokens:</span>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActivationTokenInput('ACT-DOC-2026-CHOWDHURY-88F9');
-                            const res = verifyActivationToken('ACT-DOC-2026-CHOWDHURY-88F9');
-                            setTokenVerificationResult(res);
-                            if (res.valid && res.application) {
-                              setDesiredUsername('doc_chowdhury');
-                              setUsernameCheck(checkUsernameAvailability('doc_chowdhury'));
-                            }
-                          }}
-                          className="px-2 py-0.5 rounded bg-white border border-teal-300 text-teal-800 font-mono font-medium hover:bg-teal-50"
-                        >
-                          Valid (Dr. Chowdhury)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActivationTokenInput('ACT-DOC-EXPIRED-TEST-001');
-                            setTokenVerificationResult(verifyActivationToken('ACT-DOC-EXPIRED-TEST-001'));
-                          }}
-                          className="px-2 py-0.5 rounded bg-white border border-rose-300 text-rose-800 font-mono font-medium hover:bg-rose-50"
-                        >
-                          Expired Link Demo
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setActivationTokenInput('ACT-DOC-USED-TEST-002');
-                            setTokenVerificationResult(verifyActivationToken('ACT-DOC-USED-TEST-002'));
-                          }}
-                          className="px-2 py-0.5 rounded bg-white border border-amber-300 text-amber-800 font-mono font-medium hover:bg-amber-50"
-                        >
-                          Already Used Demo
-                        </button>
-                      </div>
                     </div>
 
                     {/* Token Status Feedback Banner */}

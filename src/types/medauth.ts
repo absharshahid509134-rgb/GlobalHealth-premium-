@@ -23,7 +23,6 @@ export interface DoctorProfile {
   aiAuditSummary: string;              // Algorithmic summary of verified credentials
   mismatches: string[];                // Discrepancy flags (if any)
   securityHash: string;                // SHA-256 checksum of provider payload
-  securityPassword?: string;           // Demo PIN / practitioner password for authentication
   integrationToken: string;            // API secret for third-party widget and webhook integration
   embeddedViewsCount: number;          // Telemetry counter for external badge embeds
   lastVerifiedCheck: string;           // Timestamp of last real-time board registry check

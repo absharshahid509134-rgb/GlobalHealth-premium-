@@ -129,8 +129,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!cancelled && res?.user) {
           setUser(toUserAccount(res.user));
           setPublicUser(res.user as PublicUserAccount);
-          // apiFetch may have transparently renewed a lost demo session.
-          setSessionId(getStoredToken() || token);
+          setSessionId(token);
         }
       } catch {
         // Token invalid or expired — clear this and every dependent session.
@@ -208,20 +207,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
     window.addEventListener('globalhealth:unauthorized', handler);
     return () => window.removeEventListener('globalhealth:unauthorized', handler);
-  }, []);
-
-  // A lost demo sandbox was transparently replaced with a fresh one.
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const { user: renewedUser, token } = (e as CustomEvent).detail || {};
-      if (!renewedUser || !token) return;
-      setUser(toUserAccount(renewedUser));
-      setPublicUser(renewedUser as PublicUserAccount);
-      setSessionId(token);
-      setSessionExpired(false);
-    };
-    window.addEventListener('globalhealth:session-renewed', handler);
-    return () => window.removeEventListener('globalhealth:session-renewed', handler);
   }, []);
 
   // Multi-tab session safety: react when another tab logs in or out. The same

@@ -3,8 +3,6 @@ import { ShieldCheck } from 'lucide-react';
 import { PlatformRole, ROLE_NAMES } from '../../core/platformRoles';
 import { AuthSubView, PublicUserAccount } from '../../types/auth';
 import { NewsStaffSignupScreen } from '../news/NewsWorkspaceAccessScreens';
-import { DemoAccount, DemoAccountPicker } from './DemoAccountPicker';
-import { startPublicDemoSession } from '../../services/authService';
 
 export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
   role: Exclude<PlatformRole, 'user'>; mode: AuthSubView;
@@ -15,7 +13,7 @@ export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [challenge, setChallenge] = useState('');
-  const [demoCode, setDemoCode] = useState('');
+  const [developmentCode, setDevelopmentCode] = useState('');
   const [formValues, setFormValues] = useState<Record<string, string>>({});
 
   const request = async (action: string, body: unknown) => {
@@ -70,12 +68,12 @@ export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
         challengeId: challenge,
       });
       if (data.stage === 'mfa') {
-        const developmentCode = typeof data.demoDelivery?.code === 'string' ? data.demoDelivery.code : '';
+        const deliveredCode = typeof data.demoDelivery?.code === 'string' ? data.demoDelivery.code : '';
         setChallenge(data.challengeId);
-        setDemoCode(developmentCode);
-        setFormValues((current) => ({ ...current, code: developmentCode }));
-        setMessage(developmentCode
-          ? 'This development account uses simulated MFA. Enter the demo code shown below.'
+        setDevelopmentCode(deliveredCode);
+        setFormValues((current) => ({ ...current, code: deliveredCode }));
+        setMessage(deliveredCode
+          ? 'Email delivery is simulated in development. Enter the verification code shown below.'
           : 'Enter the verification code sent to your registered contact.');
         return;
       }
@@ -103,45 +101,20 @@ export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
     finally { setBusy(false); }
   };
 
-  // Passwordless, isolated sandbox for this portal. The server issues an opaque
-  // demo token; identity and role are re-verified through /api/auth/me.
-  const startDemo = async () => {
-    setError(''); setMessage(''); setBusy(true);
-    try {
-      const result = await startPublicDemoSession(role);
-      if (!result?.success || !result.token) throw new Error(result?.error || 'Unable to start the demo right now. Please try again.');
-      const response = await fetch('/api/auth/me', { headers: { Authorization: `Bearer ${result.token}` }, cache: 'no-store' });
-      const session = await response.json();
-      if (!response.ok) throw new Error(session.error || 'Unable to verify the demo session. Please try again.');
-      const authenticatedRole = String(session.portalRole || session.user?.portalRole || '').trim().toLowerCase();
-      if (authenticatedRole !== role) throw new Error('The demo session did not match this portal. Please try again.');
-      setMessage('Your private demo is ready.');
-      onSuccess(session.user, result.token);
-    } catch (e) { setError(e instanceof Error ? e.message : 'Unable to start the demo right now. Please try again.'); }
-    finally { setBusy(false); }
-  };
-
-  const applyDemoAccount = (account: DemoAccount) => {
-    setFormValues((current) => ({ ...current, identifier: account.identifier, password: account.password }));
-    setError('');
-    setMessage('');
-  };
-
   return <form onSubmit={submit} className="space-y-5">
     <div><h2 className="text-2xl font-bold text-slate-900">{title}</h2><p className="mt-2 text-sm text-slate-500">One GlobalHealth session. Your authorized workspace only.</p></div>
     {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
     {message && <p role="status" className="rounded-xl bg-medical-50 p-3 text-sm text-medical-800">{message}</p>}
-    {challenge && demoCode && <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">Development-only MFA code: <code className="font-mono font-bold">{demoCode}</code></p>}
+    {challenge && developmentCode && <p className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">Development-only MFA code: <code className="font-mono font-bold">{developmentCode}</code></p>}
     <fieldset disabled={busy} className="space-y-4 disabled:opacity-60">
       {challenge ? input('code', 'Verification code', 'text', 6) : reset ? <>{input('resetToken', 'Reset token from your recovery message')}{role === 'news' && input('code', 'Recovery code')}{input('newPassword', 'New password', 'password', 8)}</> : <>
         {input('identifier', signup || role === 'news' || role === 'pharmacy' ? 'Official email' : 'Email or username', signup ? 'email' : 'text')}
         {!recover && input('password', 'Password', 'password', signup ? 8 : undefined)}
         {signup && <>{input('pharmacyName', 'Pharmacy legal name', 'text', 3)}{input('licenseNumber', 'License number', 'text', 4)}{input('contactName', 'Contact name')}{input('phone', 'Phone number', 'tel')}</>}
-        {!signup && !recover && !reset && <DemoAccountPicker role={role} disabled={busy} onSelect={applyDemoAccount} onStartPublicDemo={startDemo} />}
       </>}
       <button className="w-full rounded-xl bg-medical-700 px-4 py-3 font-bold text-white hover:bg-medical-800" type="submit">{busy ? 'Please wait…' : challenge ? 'Verify and enter portal' : recover ? 'Request recovery' : reset ? 'Update password' : signup ? 'Submit for verification' : 'Sign in'}</button>
     </fieldset>
     {recover && <button type="button" className="text-sm font-semibold text-medical-700" onClick={() => onMode('reset-password')}>Already have a reset token?</button>}
-    {(reset || challenge) && <button type="button" className="text-sm font-semibold text-medical-700" onClick={() => { setChallenge(''); setDemoCode(''); setError(''); setMessage(''); setFormValues((current) => ({ ...current, code: '' })); onMode('login'); }}>Back to sign in</button>}
+    {(reset || challenge) && <button type="button" className="text-sm font-semibold text-medical-700" onClick={() => { setChallenge(''); setDevelopmentCode(''); setError(''); setMessage(''); setFormValues((current) => ({ ...current, code: '' })); onMode('login'); }}>Back to sign in</button>}
   </form>;
 }
