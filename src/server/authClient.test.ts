@@ -57,3 +57,24 @@ test('an expired current session is removed', async () => {
     assert.equal(getStoredToken(), null);
   } finally { fixture.restore(); }
 });
+
+test('an expired professional demo renews as the same portal, not as a User demo', async () => {
+  const { renewDemoSession } = await import('../services/authClient');
+  const fixture = browserFixture();
+  try {
+    storeSession('gh-demo-doctor-old', { id: 'doctor:demo-abc', email: 'demo-abc@demo.invalid' });
+    let requestedBody = '';
+    globalThis.fetch = async (_url, init) => {
+      requestedBody = String(init?.body);
+      return new Response(JSON.stringify({ success: true, token: 'gh-demo-doctor-new', user: { id: 'doctor:demo-def', email: 'demo-def@demo.invalid' } }), { status: 201 });
+    };
+    assert.equal(await renewDemoSession(), true);
+    assert.deepEqual(JSON.parse(requestedBody), { role: 'doctor' });
+    assert.equal(getStoredToken(), 'gh-demo-doctor-new');
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    storeSession('gh-demo-old', { id: 'usr-demo-abc', email: 'usr-demo-abc@demo.invalid' });
+    assert.equal(await renewDemoSession(), true);
+    assert.deepEqual(JSON.parse(requestedBody), {}, 'User demo renewal is unchanged');
+  } finally { fixture.restore(); }
+});

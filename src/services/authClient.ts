@@ -108,6 +108,20 @@ export function isStoredDemoSession(): boolean {
   }
 }
 
+/**
+ * Portal of the locally cached demo account. Professional demo identities have
+ * ids like `doctor:demo-<hex>`; anything else is the User Portal demo.
+ */
+function storedDemoRole(): 'user' | 'doctor' | 'hospital' | 'pharmacy' | 'news' {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    const match = /^(doctor|hospital|pharmacy|news):demo-/.exec(String(raw ? JSON.parse(raw)?.id : ''));
+    return (match?.[1] as 'doctor' | 'hospital' | 'pharmacy' | 'news' | undefined) ?? 'user';
+  } catch {
+    return 'user';
+  }
+}
+
 let demoRenewal: Promise<boolean> | null = null;
 
 /**
@@ -117,12 +131,13 @@ let demoRenewal: Promise<boolean> | null = null;
  */
 export function renewDemoSession(): Promise<boolean> {
   if (demoRenewal) return demoRenewal;
+  const demoRole = storedDemoRole();
   demoRenewal = (async () => {
     try {
       const res = await fetch('/api/auth/demo-login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
-        body: '{}',
+        body: JSON.stringify(demoRole === 'user' ? {} : { role: demoRole }),
         cache: 'no-store'
       });
       const data = await res.json().catch(() => null);
@@ -154,7 +169,7 @@ export class AuthError extends Error {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   // When false, the request is made without an Authorization header.
   auth?: boolean;

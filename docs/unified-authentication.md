@@ -61,7 +61,7 @@ clinical editing, hospital operational modules, inventory editing, and CMS autho
 must be migrated to account-scoped server APIs before being re-enabled. This is a
 security boundary, not a claim that all prototype functionality is migrated.
 
-## Public User Portal demo and development accounts
+## Public portal demos and development accounts
 
 - The User login presents **Explore the User Portal demo** when the server
   returns `demoSessionAvailable: true` from `GET /api/auth/demo-accounts`. Start
@@ -78,6 +78,37 @@ security boundary, not a claim that all prototype functionality is migrated.
   hide the login option and disable `POST /api/auth/demo-login`. The endpoint
   is rate-limited and responses use `Cache-Control: no-store, private` and
   `X-Robots-Tag: noindex, nofollow`.
+- **Professional portal demos.** The Doctor, Hospital, Pharmacy and News
+  Management login screens each present **Explore the <Role> Portal demo**
+  (same wording and privacy notice as the User demo). Start one with
+  `POST /api/auth/demo-login` and `{ "role": "doctor" | "hospital" | "pharmacy" | "news" }`;
+  omit `role` (or send `"user"`) for the User demo. Unknown roles return 400.
+  - Each request creates a unique synthetic identity and an HMAC-signed opaque
+    token (`gh-demo-<role>-<32 hex>-<32 hex>`). `/api/auth/me` resolves it to
+    that role with `isDemoAccount: true`, so wrong-role navigation is still
+    Access denied.
+  - The sandbox lives in `src/server/demoPortal.ts` (memory only). It is **not**
+    a session in any real doctor/hospital/pharmacy/news realm and never touches
+    the real doctor registry, hospital registry, pharmacy inventory, consent
+    records or news queue, so nothing a visitor does reaches real
+    organizations, patients or the public site. Real realm endpoints reject
+    the token (401) and `/api/me/*` returns 403.
+  - The demo opens an isolated workspace (`PrivatePortal` in demo mode) with
+    seeded sample data per role — Doctor: patients, appointments,
+    prescriptions, consent requests; Hospital: bed capacity, departments,
+    appointment requests, ambulances; Pharmacy: inventory, orders,
+    prescription review; News: articles, authority submissions, reported
+    content. Visitors can add, change the status of, and remove items through
+    `POST /api/portals/:role/demo/items`,
+    `PATCH|DELETE /api/portals/:role/demo/items/:itemId` (validated,
+    length-limited, max 25 items per section, rate-limited). "Published (demo
+    only)" never reaches the public news feed; marketplace orders stay disabled.
+  - Sandboxes end on logout, after four hours without activity (sliding), or on
+    restart. An ended token stays dead; a still-valid token after a restart
+    silently reopens a fresh sandbox, and the browser renews an expired demo of
+    the same role automatically.
+  - Controlled by the same `PUBLIC_DEMO_ENABLED` flag. Run
+    `npm run accept:demo-portals` against a dev server for the acceptance checks.
 - The Sarah/Alex User credentials and seeded Doctor, Hospital, Pharmacy, and
   News Management role-account pickers are development-only. The
   `GET /api/auth/demo-accounts` response may include those credentials only in
