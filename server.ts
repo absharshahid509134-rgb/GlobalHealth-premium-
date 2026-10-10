@@ -27,6 +27,7 @@ import {
 async function startServer() {
   const config = loadRuntimeConfig(process.env);
   const app = express();
+  if (config.trustProxy !== false) app.set('trust proxy', config.trustProxy);
   const logger = createLogger('server');
   const appDir = process.cwd();
   const RUNTIME_DIR = path.join(appDir, config.runtimeDir, 'runtime');

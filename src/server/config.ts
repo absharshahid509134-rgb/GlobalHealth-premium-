@@ -20,6 +20,8 @@ export interface RuntimeConfig {
   ghAdminKey: string;
   /** Public, passwordless entry to an isolated synthetic user sandbox. */
   publicDemoEnabled: boolean;
+  /** Express `trust proxy` setting so req.ip is the real visitor behind a load balancer. */
+  trustProxy: boolean | number | string;
   newsAdminBootstrap: {
     email: string;
     password: string;
@@ -29,6 +31,24 @@ export interface RuntimeConfig {
 }
 
 const PROD_ORIGIN = /^https?:\/\/[a-z0-9.-]+(?::\d+)?$/i;
+
+/**
+ * Resolve TRUST_PROXY. Hosted platforms (Render, Railway, Fly, Cloud Run, Heroku,
+ * Vercel, nginx, ...) terminate TLS at a reverse proxy, so without this every
+ * visitor shares the proxy's IP and the per-IP rate limits (including demo
+ * sign-in) would lock everyone out after a few requests.
+ * Accepts: true/false, a hop count (e.g. 1) or an Express subnet list.
+ * Defaults to 1 hop in production and off elsewhere.
+ */
+function parseTrustProxy(raw: string, isProduction: boolean): boolean | number | string {
+  const value = raw.trim();
+  if (!value) return isProduction ? 1 : false;
+  const lower = value.toLowerCase();
+  if (lower === 'true') return true;
+  if (lower === 'false' || lower === '0') return false;
+  if (/^\d+$/.test(value)) return Number.parseInt(value, 10);
+  return value;
+}
 
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const nodeEnv = (env.NODE_ENV || 'development').toLowerCase();
@@ -96,6 +116,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     prescriptionSigningSecret,
     ghAdminKey,
     publicDemoEnabled,
+    trustProxy: parseTrustProxy(env.TRUST_PROXY || '', isProduction),
     newsAdminBootstrap: {
       email: (env.NEWS_ADMIN_BOOTSTRAP_EMAIL || '').trim(),
       password: (env.NEWS_ADMIN_BOOTSTRAP_PASSWORD || '').trim(),

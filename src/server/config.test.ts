@@ -49,3 +49,11 @@ test('invalid port falls back to 3000 with a warning', () => {
   assert.equal(cfg.port, 3000);
   assert.ok(cfg.warnings.some((w) => w.includes('PORT')));
 });
+
+test('trust proxy defaults to one hop in production and off otherwise', () => {
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'production' }).trustProxy, 1);
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'development' }).trustProxy, false);
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'production', TRUST_PROXY: 'false' }).trustProxy, false);
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'production', TRUST_PROXY: '2' }).trustProxy, 2);
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'development', TRUST_PROXY: 'true' }).trustProxy, true);
+});
