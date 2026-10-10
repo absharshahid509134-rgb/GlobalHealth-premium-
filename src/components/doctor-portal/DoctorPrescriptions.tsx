@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, CheckCircle2, Send, Printer, Download, Sparkles, AlertTriangle } from 'lucide-react';
+import { Plus, CheckCircle2, Send, Printer, Download, Sparkles, AlertTriangle, ShieldCheck, ArrowLeft } from 'lucide-react';
 import { useClinicalWorkspace, PrescriptionMedicine, RX_STATUS_LABEL } from './doctorClinicalData';
 import { useDoctorPortal } from './doctorPortalData';
+import { evaluateCDS, ClinicalDecisionSupportBanner, CDSAlert } from './clinicalDecisionSupport';
 
 export const DoctorPrescriptions: React.FC<{ onNavigate?: (v: any) => void }> = ({ onNavigate }) => {
   const { patients, selectedPatientId, addPrescription, updatePrescriptionStatus } = useClinicalWorkspace();
@@ -16,9 +17,33 @@ export const DoctorPrescriptions: React.FC<{ onNavigate?: (v: any) => void }> = 
   });
   const [patientVerified, setPatientVerified] = useState(true);
   const [allergyChecked, setAllergyChecked] = useState(true);
+  const [acknowledgedAlerts, setAcknowledgedAlerts] = useState<Record<string, string>>({});
 
   const patient = patients.find((p) => p.id === patientId) || null;
   const allRx = useMemo(() => patients.flatMap((p) => p.prescriptions.map((rx) => ({ ...rx, patientName: p.name }))), [patients]);
+
+  // Real-time Clinical Decision Support evaluation
+  const cdsAlerts: CDSAlert[] = useMemo(() => {
+    if (!patient || medicines.length === 0) return [];
+    const patientMedNames = patient.medications.map((m) => m.name);
+    const rawAlerts = evaluateCDS(medicines, {
+      allergies: patient.allergies || [],
+      currentMedications: patientMedNames,
+      conditions: patient.conditions || [],
+      age: patient.age
+    });
+    return rawAlerts.map((a) => ({
+      ...a,
+      acknowledged: !!acknowledgedAlerts[a.id],
+      overrideReason: acknowledgedAlerts[a.id]
+    }));
+  }, [patient, medicines, acknowledgedAlerts]);
+
+  const hasUnacknowledgedCritical = cdsAlerts.some((a) => a.severity === 'critical' && !a.acknowledged);
+
+  const handleAcknowledgeAlert = (alertId: string, reason: string) => {
+    setAcknowledgedAlerts((prev) => ({ ...prev, [alertId]: reason }));
+  };
 
   const addMedicine = () => {
     if (!form.name.trim() || !form.dose.trim() || !form.frequency.trim()) return;
@@ -26,11 +51,10 @@ export const DoctorPrescriptions: React.FC<{ onNavigate?: (v: any) => void }> = 
     setForm((f) => ({ ...f, name: '', strength: '', dose: '', instructions: '' }));
   };
 
-  const ready = patientVerified && allergyChecked && medicines.length > 0 && medicines.every((m) => m.name && m.dose && m.duration);
+  const ready = patientVerified && allergyChecked && medicines.length > 0 && medicines.every((m) => m.name && m.dose && m.duration) && !hasUnacknowledgedCritical;
 
   const saveDraft = () => {
     if (!patient) return;
-    const id = `rx-${Date.now()}`;
     const nextId = rxId || `RX-GH-${Math.floor(29000 + Math.random() * 9000)}`;
     addPrescription(patient.id, {
       rxId: nextId, date: new Date().toISOString().slice(0, 10), status: 'draft',
@@ -39,11 +63,11 @@ export const DoctorPrescriptions: React.FC<{ onNavigate?: (v: any) => void }> = 
     });
     setRxId(nextId);
     setMedicines([]);
+    setStatus('list');
   };
 
   const sign = () => {
     if (!patient || !ready) return;
-    const id = `rx-${Date.now()}`;
     const nextId = rxId || `RX-GH-${Math.floor(29000 + Math.random() * 9000)}`;
     addPrescription(patient.id, {
       rxId: nextId, date: new Date().toISOString().slice(0, 10), status: 'signed',
@@ -115,26 +139,146 @@ export const DoctorPrescriptions: React.FC<{ onNavigate?: (v: any) => void }> = 
                 </ul>
               )}
             </div>
+            {/* Live Clinical Decision Support Banner */}
+            {medicines.length > 0 && (
+              <div className="mt-4">
+                <ClinicalDecisionSupportBanner
+                  alerts={cdsAlerts}
+                  onAcknowledgeAlert={handleAcknowledgeAlert}
+                />
+              </div>
+            )}
+
             <div className="mt-4 flex flex-wrap gap-2 border-t border-[#E3E8EF] pt-4">
-              <button type="button" onClick={saveDraft} className="rounded-xl border border-[#E3E8EF] px-3.5 py-2 text-xs font-bold text-[#607086] hover:bg-slate-50">Save draft</button>
-              <button type="button" onClick={() => setStatus('review')} disabled={!ready} className="rounded-xl bg-[#1769E0] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#145bbf] disabled:opacity-50">Review & sign</button>
+              <button type="button" onClick={saveDraft} className="rounded-xl border border-[#E3E8EF] px-3.5 py-2 text-xs font-bold text-[#607086] hover:bg-slate-50 cursor-pointer">Save draft</button>
+              <button
+                type="button"
+                onClick={() => setStatus('review')}
+                disabled={!ready}
+                className="rounded-xl bg-[#1769E0] px-3.5 py-2 text-xs font-bold text-white hover:bg-[#145bbf] disabled:opacity-50 cursor-pointer"
+              >
+                Proceed to Review & Sign
+              </button>
             </div>
           </section>
           <section className="rounded-2xl border border-[#E3E8EF] bg-white p-5 shadow-soft">
-            <h3 className="mb-3 text-sm font-extrabold text-[#162235]">Prescription safety</h3>
+            <h3 className="mb-3 text-sm font-extrabold text-[#162235]">Prescription safety & compliance</h3>
             <ul className="space-y-2 text-xs">
               <SafetyRow ok={!!patient} label="Patient verified" />
               <SafetyRow ok={medicines.length > 0} label="Medicine selected" />
               <SafetyRow ok={medicines.every((m) => m.name && m.dose)} label="Dosage completed" />
               <SafetyRow ok={medicines.every((m) => m.duration)} label="Duration completed" />
               <SafetyRow ok={allergyChecked} label="Allergy checked" />
+              <SafetyRow ok={!hasUnacknowledgedCritical} label="Critical CDS interactions resolved" />
               <SafetyRow ok={ready} label="Required fields completed" />
             </ul>
-            <label className="mt-4 flex items-center gap-2 text-xs text-[#607086]"><input type="checkbox" checked={allergyChecked} onChange={(e) => setAllergyChecked(e.target.checked)} className="h-4 w-4 rounded border-[#E3E8EF]" /> I have reviewed patient allergies</label>
-            <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-teal-50 p-2.5 text-[10px] leading-relaxed text-teal-800 ring-1 ring-teal-200"><Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" /> This safety layer is clinical decision support only. The final clinical decision remains with you.</p>
+            <label className="mt-4 flex items-center gap-2 text-xs text-[#607086]">
+              <input type="checkbox" checked={allergyChecked} onChange={(e) => setAllergyChecked(e.target.checked)} className="h-4 w-4 rounded border-[#E3E8EF]" />
+              I have reviewed patient documented allergies and interactions
+            </label>
+            <p className="mt-3 flex items-start gap-1.5 rounded-xl bg-teal-50 p-2.5 text-[10px] leading-relaxed text-teal-800 ring-1 ring-teal-200">
+              <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              This safety layer is clinical decision support only. The final clinical decision and prescription signature remains exclusively with the licensed physician.
+            </p>
           </section>
         </div>
       ) : null}
+
+      {/* Structured Review & Formal Clinical Signature Step */}
+      {status === 'review' && patient && (
+        <section className="mx-auto max-w-3xl rounded-3xl border border-[#E3E8EF] bg-white p-6 shadow-soft sm:p-8">
+          <div className="flex items-center justify-between border-b border-[#E3E8EF] pb-4">
+            <div>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-medical-700">Pre-Signature Clinical Review</span>
+              <h3 className="text-xl font-extrabold text-[#162235]">Review Electronic Prescription</h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setStatus('builder')}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 cursor-pointer"
+            >
+              <ArrowLeft className="h-3.5 w-3.5" /> Back to Edit
+            </button>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 rounded-2xl bg-slate-50 p-4 text-xs">
+              <div>
+                <p className="font-bold text-slate-500 uppercase text-[10px]">Patient Details</p>
+                <p className="text-sm font-extrabold text-slate-900 mt-0.5">{patient.name}</p>
+                <p className="text-slate-600">ID: {patient.identifier} · Age: {patient.age}y · Sex: {patient.sex}</p>
+                <p className="text-slate-600">Known Allergies: {patient.allergies.join(', ') || 'None documented'}</p>
+              </div>
+              <div>
+                <p className="font-bold text-slate-500 uppercase text-[10px]">Prescribing Clinician</p>
+                <p className="text-sm font-extrabold text-slate-900 mt-0.5">{doctor.displayName}</p>
+                <p className="text-slate-600">{doctor.professionalTitle} · {doctor.specialty}</p>
+                <p className="text-slate-600">Registration ID: {doctor.id} · Date: {new Date().toLocaleDateString()}</p>
+              </div>
+            </div>
+
+            <div>
+              <h4 className="text-xs font-bold uppercase tracking-wider text-[#8A97A8] mb-2">Prescribed Items ({medicines.length})</h4>
+              <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                {medicines.map((m, idx) => (
+                  <div key={m.id} className="p-3 text-xs flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <span className="font-mono text-slate-400 mr-2">{idx + 1}.</span>
+                      <span className="font-bold text-slate-900">{m.name} {m.strength}</span>
+                      <span className="text-slate-500 ml-2">({m.form})</span>
+                      <div className="text-[11px] text-slate-600 mt-0.5">
+                        Dose: <span className="font-medium text-slate-900">{m.dose}</span> · Route: {m.route} · Frequency: {m.frequency} · Duration: {m.duration}
+                      </div>
+                      {m.instructions && (
+                        <p className="text-[11px] text-teal-800 bg-teal-50/70 rounded px-1.5 py-0.5 mt-1 inline-block">
+                          Directions: {m.instructions}
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right text-[11px] text-slate-500">
+                      <span>Qty: {m.quantity}</span> · <span>Refills: {m.refills}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* CDS Summary in Review */}
+            <ClinicalDecisionSupportBanner
+              alerts={cdsAlerts}
+              onAcknowledgeAlert={handleAcknowledgeAlert}
+            />
+
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 text-xs text-emerald-950 flex items-start gap-2.5">
+              <ShieldCheck className="h-5 w-5 text-emerald-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="font-bold">Digital Signature Confirmation</p>
+                <p className="text-[11px] text-emerald-900/90 mt-0.5">
+                  By signing this document, you certify that you have reviewed the patient record, verified drug allergies and dosing, and authorized this prescription under your medical license ({doctor.id}).
+                </p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-end gap-3 pt-4 border-t border-[#E3E8EF]">
+              <button
+                type="button"
+                onClick={() => setStatus('builder')}
+                className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+              >
+                Modify Prescription
+              </button>
+              <button
+                type="button"
+                onClick={sign}
+                disabled={!ready}
+                className="rounded-xl bg-[#1769E0] px-5 py-2.5 text-xs font-bold text-white hover:bg-[#145bbf] disabled:opacity-50 cursor-pointer shadow-sm flex items-center gap-1.5"
+              >
+                <CheckCircle2 className="h-4 w-4" /> Sign and Authorize e-Prescription
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
 
       {status === 'signed' && signedRx && (
         <section className="mx-auto max-w-2xl rounded-3xl border border-[#E3E8EF] bg-white p-8 shadow-soft">

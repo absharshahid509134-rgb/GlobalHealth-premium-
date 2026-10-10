@@ -87,8 +87,9 @@ export const Footer: React.FC<FooterProps> = ({ onTabChange }) => {
               {columnLink('Community', () => onTabChange('community'))}
               {columnLink('Health Tools', () => onTabChange('calculators'))}
               {columnLink('Health News', () => onTabChange('news'))}
-              {columnLink('Saved Library', () => onTabChange('dashboard', 'saved'))}
-              {columnLink('Dashboard', () => onTabChange('dashboard', 'dashboard'))}
+              {columnLink('Doctor Portal', () => onTabChange('doctor-portal'))}
+              {columnLink('Hospital Portal', () => onTabChange('hospital-portal'))}
+              {columnLink('Personal Dashboard', () => onTabChange('dashboard', 'dashboard'))}
             </ul>
           </nav>
 

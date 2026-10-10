@@ -40,9 +40,11 @@ export const EXPLORE_ITEMS: ExploreItem[] = [
   { id: 'ov-calculators', tab: 'calculators', label: 'Health Tools', description: 'Calculators and trackers for your health goals.', icon: <Calculator className="h-5 w-5" /> },
 ];
 
-/** Public personal-account entry points. Professional portals are not advertised here. */
+/** Workspaces: Personal health records and verified professional portals. */
 export const WORKSPACE_ITEMS: ExploreItem[] = [
   { id: 'ov-health-records', tab: 'dashboard', mode: 'dashboard', label: 'My Health Records', description: 'Personal dashboard, EHR and doctor access.', icon: <FileHeart className="h-5 w-5" />, badge: 'Personal' },
+  { id: 'ov-doctor-portal', tab: 'doctor-portal', label: 'Doctor Portal', description: 'Professional clinician workspace, EHR, e-prescriptions & consultations.', icon: <Stethoscope className="h-5 w-5" />, badge: 'Clinician' },
+  { id: 'ov-hospital-portal', tab: 'hospital-portal', label: 'Hospital Portal', description: 'Institutional operations, departments, admissions & beds.', icon: <Building2 className="h-5 w-5" />, badge: 'Enterprise' },
 ];
 
 interface ExploreCardProps {

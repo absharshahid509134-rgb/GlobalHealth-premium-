@@ -38,6 +38,7 @@ export type NavigationView =
   | 'audit-logs'
   | 'security'
   | 'settings'
+  | 'support'
   | 'global-admin'
   | 'auth';
 

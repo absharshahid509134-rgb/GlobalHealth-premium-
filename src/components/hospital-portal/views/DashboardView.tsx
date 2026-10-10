@@ -14,7 +14,11 @@ import {
   AlertCircle,
   Plus,
   Navigation,
-  ArrowRight
+  ArrowRight,
+  Calendar,
+  Globe2,
+  FileCheck,
+  LifeBuoy
 } from 'lucide-react';
 import { useHospitalPortal } from '../../../context/HospitalContext';
 
@@ -94,6 +98,20 @@ export const DashboardView: React.FC = () => {
           >
             <Stethoscope className="h-4 w-4 text-[#008F68]" />
             <span>Enroll Doctor</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('public-sync')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-[#E8F7F1] hover:bg-[#D4EFE5] text-[#008F68] border border-[#BDE4D5] text-xs font-bold transition cursor-pointer"
+          >
+            <Globe2 className="h-4 w-4 text-[#008F68]" />
+            <span>Public Sync</span>
+          </button>
+          <button
+            onClick={() => setCurrentView('support')}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white hover:bg-[#F6FBF8] text-[#52635C] border border-[#DCEBE4] text-xs font-bold transition cursor-pointer"
+          >
+            <LifeBuoy className="h-4 w-4 text-[#287EA8]" />
+            <span>Support Desk</span>
           </button>
         </div>
       </div>

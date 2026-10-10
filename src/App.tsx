@@ -90,6 +90,12 @@ const PersonalDetailsView = lazy(() =>
 const FullScreenNewsWorkspace = lazy(() =>
   import('./components/news/FullScreenNewsWorkspace').then((m) => ({ default: m.FullScreenNewsWorkspace }))
 );
+const HospitalPortalView = lazy(() =>
+  import('./components/hospital-portal/HospitalPortalView').then((m) => ({ default: m.HospitalPortalView }))
+);
+const DoctorPortalApp = lazy(() =>
+  import('./components/doctor-portal/DoctorPortalApp').then((m) => ({ default: m.DoctorPortalApp }))
+);
 
 /** Shared spinner shown while a lazy workspace chunk loads. */
 const RouteFallback: React.FC<{ fullScreen?: boolean }> = ({ fullScreen = false }) => (
@@ -486,7 +492,7 @@ export default function App() {
     if (initializing || !entryReady) return;
     const destination = overlayTab || currentTab;
     const requestedRole = roleForDestination(destination);
-    if (!currentUser && (gateOpen || requestedRole)) {
+    if (!currentUser && (gateOpen || (requestedRole && destination !== 'hospital-portal' && destination !== 'doctor-portal'))) {
       setAuthRole(requestedRole || 'user');
       const suffix = window.location.hash.split('/')[1]?.split('?')[0];
       const mode = suffix === 'signup' ? 'signup' : suffix === 'forgot-password' ? 'forgot-password' : suffix === 'reset-password' ? 'reset-password' : gateMode;
@@ -611,6 +617,22 @@ export default function App() {
 
   const renderOverlayBody = () => {
     if (!overlayTab) return null;
+
+    if (overlayTab === 'hospital-portal') {
+      return (
+        <Suspense fallback={<RouteFallback fullScreen />}>
+          <HospitalPortalView onBackToPublic={closeOverlay} />
+        </Suspense>
+      );
+    }
+
+    if (overlayTab === 'doctor-portal' || overlayTab === 'doctor-console' || overlayTab === 'medauth') {
+      return (
+        <Suspense fallback={<RouteFallback fullScreen />}>
+          <DoctorPortalApp onBackToGlobalHealth={closeOverlay} />
+        </Suspense>
+      );
+    }
 
     if (initializing) return <AuthLoading />;
     const requiredRole = roleForDestination(overlayTab);

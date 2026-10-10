@@ -28,6 +28,7 @@ import { AnalyticsView } from './views/AnalyticsView';
 import { AuditLogsView } from './views/AuditLogsView';
 import { SecurityView } from './views/SecurityView';
 import { SettingsView } from './views/SettingsView';
+import { SupportView } from './views/SupportView';
 import { GlobalAdminView } from './views/GlobalAdminView';
 import { AuthPage } from './views/AuthPage';
 import { PublicProfileSyncView } from './views/PublicProfileSyncView';
@@ -192,6 +193,8 @@ const HospitalPortalInner: React.FC<HospitalPortalViewProps> = ({ onBackToPublic
         return <SecurityView />;
       case 'settings':
         return <SettingsView />;
+      case 'support':
+        return <SupportView />;
       case 'global-admin':
         return <GlobalAdminView />;
       default:
@@ -199,12 +202,20 @@ const HospitalPortalInner: React.FC<HospitalPortalViewProps> = ({ onBackToPublic
     }
   };
 
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-[#F6FBF8] text-[#17221E] flex flex-col font-sans selection:bg-[#BDE4D5] selection:text-[#006B4F]">
-      <TopBar onBackToPublic={onBackToPublic} />
+      <TopBar
+        onBackToPublic={onBackToPublic}
+        onToggleMobileMenu={() => setMobileMenuOpen((prev) => !prev)}
+      />
 
       <div className="flex-1 flex overflow-hidden">
-        <Sidebar />
+        <Sidebar
+          mobileOpen={mobileMenuOpen}
+          onCloseMobile={() => setMobileMenuOpen(false)}
+        />
         <main className="flex-1 overflow-y-auto min-h-[calc(100vh-53px)] pb-16">
           {renderActiveView()}
         </main>

@@ -18,6 +18,7 @@ export const GLOBAL_SESSION_KEYS = [
   // Hospital portal
   'globalhealth_hospital_session',
   'gh_hospital_session_token',
+  'hospital_portal_session_token_v1',
   // Doctor / MedAuth portal
   'globalhealth_doctor_session',
   'globalhealth_doctor_token',

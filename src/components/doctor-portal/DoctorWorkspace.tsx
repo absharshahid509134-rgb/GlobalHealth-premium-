@@ -1,11 +1,14 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   LayoutDashboard, CalendarDays, Clock3, CalendarClock, UserRound, BadgeCheck, Building2,
   Users, MessagesSquare, Bell, ArrowLeftRight, FileText, FolderLock, ShieldCheck, KeyRound,
   ScrollText, BarChart3, CircleHelp, LifeBuoy, LogOut, Activity, ChevronDown, Search,
-  Stethoscope, ClipboardList, FlaskConical, ScanLine, IndianRupee
+  Stethoscope, ClipboardList, FlaskConical, ScanLine, IndianRupee, Globe2, Shield, Lock
 } from 'lucide-react';
 import { useDoctorPortal, WorkspaceView, FACILITIES } from './doctorPortalData';
+import { useClinicalWorkspace } from './doctorClinicalData';
+import { DoctorSidebar } from './layout/DoctorSidebar';
+import { PatientContextBar } from './layout/PatientContextBar';
 import { DoctorDashboard } from './DoctorDashboard';
 import { DoctorAppointments } from './DoctorAppointments';
 import { DoctorAvailability } from './DoctorAvailability';
@@ -34,7 +37,6 @@ interface NavItem {
   label: string;
   icon: React.ReactNode;
   group: string;
-  /** Clinical modules only appear when the doctor is authorized + org supports them. */
   clinicalOnly?: boolean;
 }
 
@@ -65,13 +67,12 @@ const NAV: NavItem[] = [
   { view: 'support', label: 'Contact Support', icon: <LifeBuoy className="h-4 w-4" />, group: 'Account' },
 ];
 
-const GROUPS = ['Main', 'Professional', 'Account'];
-
 /** Compact mobile bottom navigation — only the most important areas. */
 const MOBILE_NAV: WorkspaceView[] = ['dashboard', 'patients', 'appointments', 'messages', 'notifications'];
 
 export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobalHealth, onLogout }) => {
-  const { doctor, activeFacilityId, setActiveFacility, notifications } = useDoctorPortal();
+  const { doctor, activeFacilityId, setActiveFacility, notifications, messages } = useDoctorPortal();
+  const { selectedPatientId, selectPatient, patients } = useClinicalWorkspace();
   const [view, setView] = useState<WorkspaceView>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [facilityOpen, setFacilityOpen] = useState(false);
@@ -80,8 +81,31 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
 
   const activeFacility = FACILITIES.find((f) => f.id === activeFacilityId) || FACILITIES[0];
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const unreadMessagesCount = messages.filter((m) => !m.read).length;
+  const pendingLabsCount = patients.reduce(
+    (acc, p) => acc + p.labs.filter((l) => l.status === 'available' || l.status === 'collected').length,
+    0
+  );
 
-  const go = (v: WorkspaceView) => { setView(v); setSidebarOpen(false); window.scrollTo({ top: 0 }); };
+  const activePatient = selectedPatientId ? patients.find((p) => p.id === selectedPatientId) : null;
+
+  // Global command shortcut: Ctrl+K / Cmd+K
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  const go = (v: WorkspaceView) => {
+    setView(v);
+    setSidebarOpen(false);
+    window.scrollTo({ top: 0 });
+  };
 
   const activeLabel = NAV.find((n) => n.view === view)?.label || 'Dashboard';
 
@@ -90,8 +114,14 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
       {/* Top bar */}
       <header className="sticky top-0 z-30 border-b border-[#E3E8EF] bg-white/95 backdrop-blur-md">
         <div className="flex items-center gap-3 px-4 py-2.5">
-          <button onClick={() => setSidebarOpen(true)} className="cursor-pointer rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden" aria-label="Open navigation">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" /></svg>
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="cursor-pointer rounded-lg p-1.5 text-slate-500 hover:bg-slate-100 lg:hidden"
+            aria-label="Open navigation"
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M4 6h16M4 12h16M4 18h16" strokeLinecap="round" />
+            </svg>
           </button>
           <button onClick={onBackToGlobalHealth} className="flex cursor-pointer items-center gap-2 text-left">
             <span className="grid h-8 w-8 place-items-center rounded-xl bg-[#0B1F3A] text-white">
@@ -104,7 +134,21 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
           </button>
 
           <span className="mx-1 hidden h-5 w-px bg-slate-200 md:block" aria-hidden="true" />
-          <h1 className="hidden text-sm font-bold text-[#607086] md:block"><span className="text-[#8A97A8]">Doctor Portal / </span>{activeLabel}</h1>
+          <h1 className="hidden text-sm font-bold text-[#607086] md:block">
+            <span className="text-[#8A97A8]">Doctor Portal / </span>{activeLabel}
+          </h1>
+
+          {/* Time Zone & E2EE Security Status */}
+          <div className="hidden xl:flex items-center gap-2 text-[11px] text-[#607086] ml-2">
+            <span className="inline-flex items-center gap-1 rounded-lg bg-slate-50 border border-slate-200/80 px-2 py-1">
+              <Clock3 className="h-3.5 w-3.5 text-slate-400" />
+              <span>IST (UTC+05:30)</span>
+            </span>
+            <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200/80 px-2 py-1 text-emerald-800 font-medium">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+              <span>TLS 1.3 · MedAuth™ Active</span>
+            </span>
+          </div>
 
           <div className="ml-auto flex items-center gap-2">
             <button
@@ -112,8 +156,13 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
               onClick={() => setSearchOpen(!searchOpen)}
               className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-500 transition hover:border-medical-200 hover:text-medical-800"
               aria-label="Search your portal"
+              title="Search (Press Ctrl+K)"
             >
-              <Search className="h-3.5 w-3.5" /> <span className="hidden sm:inline">Search your portal…</span>
+              <Search className="h-3.5 w-3.5" />
+              <span className="hidden sm:inline">Search portal…</span>
+              <kbd className="hidden sm:inline-block rounded bg-slate-100 px-1 py-0.2 text-[9px] font-mono text-slate-500 border border-slate-200">
+                ⌘K
+              </kbd>
             </button>
             <button
               type="button"
@@ -123,7 +172,9 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
             >
               <Bell className="h-4 w-4" />
               {unreadCount > 0 && (
-                <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-medical-600 text-[9px] font-bold text-white">{unreadCount}</span>
+                <span className="absolute -right-1 -top-1 grid h-4 w-4 place-items-center rounded-full bg-medical-600 text-[9px] font-bold text-white">
+                  {unreadCount}
+                </span>
               )}
             </button>
             <div className="relative">
@@ -133,7 +184,9 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
                 className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-[#E3E8EF] bg-white px-2 py-1.5 text-left transition hover:bg-slate-50"
                 aria-expanded={profileOpen}
               >
-                <span className="grid h-7 w-7 place-items-center rounded-full bg-[#0B1F3A] text-[10px] font-bold text-white">{doctor.displayName.split(' ').map((x) => x[0]).slice(0, 2).join('')}</span>
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-[#0B1F3A] text-[10px] font-bold text-white">
+                  {doctor.displayName.split(' ').map((x) => x[0]).slice(0, 2).join('')}
+                </span>
                 <span className="hidden sm:block">
                   <span className="block text-[11px] font-extrabold leading-tight text-[#162235]">{doctor.displayName}</span>
                   <span className="block text-[9px] font-bold text-teal-600">✓ Verified Doctor</span>
@@ -145,13 +198,17 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
                   <div className="border-b border-[#E3E8EF] px-2 pb-2">
                     <p className="text-sm font-extrabold text-[#162235]">{doctor.displayName}</p>
                     <p className="text-[11px] text-[#607086]">{doctor.professionalTitle} · {doctor.specialty}</p>
-                    <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700"><BadgeCheck className="h-3 w-3" /> GlobalHealth Verified Doctor</p>
+                    <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700">
+                      <BadgeCheck className="h-3 w-3" /> GlobalHealth Verified Doctor
+                    </p>
                   </div>
                   <div className="mt-1.5 space-y-0.5">
                     <button type="button" onClick={() => { go('profile'); setProfileOpen(false); }} className="w-full rounded-lg px-2 py-2 text-left text-xs font-bold text-[#162235] hover:bg-slate-50">View Profile</button>
                     <button type="button" onClick={() => { go('availability'); setProfileOpen(false); }} className="w-full rounded-lg px-2 py-2 text-left text-xs font-bold text-[#162235] hover:bg-slate-50">Availability</button>
                     <button type="button" onClick={() => { go('security'); setProfileOpen(false); }} className="w-full rounded-lg px-2 py-2 text-left text-xs font-bold text-[#162235] hover:bg-slate-50">Settings & Security</button>
-                    <button type="button" onClick={onLogout} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-rose-600 hover:bg-rose-50"><LogOut className="h-3.5 w-3.5" /> Logout</button>
+                    <button type="button" onClick={onLogout} className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs font-bold text-rose-600 hover:bg-rose-50 cursor-pointer">
+                      <LogOut className="h-3.5 w-3.5" /> Logout
+                    </button>
                   </div>
                 </div>
               )}
@@ -160,7 +217,7 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
         </div>
 
         {/* Facility switcher — active organization is always obvious */}
-        <div className="border-t border-[#E3E8EF] px-4 py-1.5">
+        <div className="border-t border-[#E3E8EF] px-4 py-1.5 flex items-center justify-between">
           <div className="relative inline-block">
             <button
               type="button"
@@ -195,81 +252,48 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
               </div>
             )}
           </div>
+
+          <span className="text-[11px] text-slate-500 hidden sm:inline">
+            Active timezone: <span className="font-semibold text-slate-700">Asia/Kolkata (UTC+05:30)</span>
+          </span>
         </div>
       </header>
+
+      {/* Persistent Patient Context Bar whenever a patient chart is active */}
+      {activePatient && (
+        <PatientContextBar
+          patient={{
+            id: activePatient.id,
+            identifier: activePatient.identifier,
+            name: activePatient.name,
+            age: activePatient.age,
+            gender: activePatient.sex,
+            bloodGroup: activePatient.bloodGroup,
+            consentStatus: activePatient.consentStatus,
+            consentedScopes: activePatient.consentedScopes,
+            facilityName: activeFacility.name
+          }}
+          onRequestScopeExpansion={() => go('patients')}
+          onViewAccessAudit={() => go('audit')}
+          onCloseChart={() => selectPatient(null)}
+        />
+      )}
 
       {/* Global portal search (authorized resources only) */}
       {searchOpen && <PortalSearch onNavigate={go} onClose={() => setSearchOpen(false)} />}
 
       <div className="flex flex-1">
-        {/* Sidebar (desktop) */}
-        <aside className="hidden w-64 shrink-0 border-r border-[#E3E8EF] bg-[#0B1F3A] lg:block">
-          <nav className="sticky top-[104px] max-h-[calc(100vh-112px)] overflow-y-auto p-3" aria-label="Doctor portal navigation">
-            {GROUPS.map((group) => {
-              const items = NAV.filter((n) => n.group === group);
-              if (!items.length) return null;
-              return (
-                <div key={group} className="mb-4">
-                  <p className="px-2.5 pb-1.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{group}</p>
-                  <div className="space-y-0.5">
-                    {items.map((item) => (
-                      <button
-                        key={item.view}
-                        type="button"
-                        onClick={() => go(item.view)}
-                        aria-current={view === item.view ? 'page' : undefined}
-                        className={`flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-semibold transition ${
-                          view === item.view ? 'bg-[#1769E0] text-white shadow-sm' : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                        }`}
-                      >
-                        {item.icon} {item.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-            <div className="mt-3 border-t border-white/10 pt-3">
-              <button
-                type="button"
-                onClick={onBackToGlobalHealth}
-                className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-semibold text-slate-300 transition hover:bg-white/10 hover:text-white"
-              >
-                <Activity className="h-4 w-4" /> Back to GlobalHealth
-              </button>
-            </div>
-          </nav>
-        </aside>
-
-        {/* Mobile drawer */}
-        {sidebarOpen && (
-          <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true">
-            <div className="absolute inset-0 bg-slate-950/40" onClick={() => setSidebarOpen(false)} />
-            <div className="absolute inset-y-0 left-0 w-72 overflow-y-auto bg-[#0B1F3A] p-3 shadow-lift">
-              <div className="mb-3 flex items-center justify-between px-2">
-                <span className="text-sm font-extrabold text-white">Doctor Portal</span>
-                <button type="button" onClick={() => setSidebarOpen(false)} className="cursor-pointer rounded-lg p-1 text-slate-400 hover:bg-white/10" aria-label="Close navigation">✕</button>
-              </div>
-              {GROUPS.map((group) => {
-                const items = NAV.filter((n) => n.group === group);
-                if (!items.length) return null;
-                return (
-                  <div key={group} className="mb-3">
-                    <p className="px-2.5 pb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">{group}</p>
-                    {items.map((item) => (
-                      <button key={item.view} type="button" onClick={() => go(item.view)}
-                        className={`flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left text-xs font-semibold transition ${
-                          view === item.view ? 'bg-[#1769E0] text-white' : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                        }`}>
-                        {item.icon} {item.label}
-                      </button>
-                    ))}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
+        {/* Modern Doctor Sidebar */}
+        <DoctorSidebar
+          currentView={view}
+          onNavigate={go}
+          onBackToGlobalHealth={onBackToGlobalHealth}
+          isOpen={sidebarOpen}
+          onClose={() => setSidebarOpen(false)}
+          unreadNotifications={unreadCount}
+          unreadMessages={unreadMessagesCount}
+          pendingReviewsCount={pendingLabsCount}
+        />
 
         {/* Main content */}
         <main className="min-w-0 flex-1 px-4 py-6 sm:px-6 lg:px-8">
