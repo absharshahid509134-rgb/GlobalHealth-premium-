@@ -64,3 +64,18 @@ first boundary; the next phases move route groups behind domain repos.
   and by tests).
 - Route-specific domain logic: still `server.ts` until Phase 1/2 decomposition
   moves it; do NOT introduce a second giant file.
+
+## Demo accounts and session restore
+
+- `src/server/demoAccounts.ts` defines the opt-in sample accounts (one per
+  portal) and an idempotent seeder. `src/server/config.ts` reads
+  `GH_DEMO_MODE`, and demo mode is always off in production.
+- Seeded demo accounts go through the normal password and session paths. Their
+  records carry `DEMO_SEED_MARKER`, which `src/server/accountMigration.ts` uses
+  to keep them while demo mode is on and to prune them when it is off.
+- The client `src/components/auth/DemoAccountPanel.tsx` fills the login form from
+  `/api/demo/config`. It never submits. Filling is tagged by role, so one role's
+  credentials never reach another role's form.
+- `src/context/AuthContext.tsx` restores the session on load. It retries
+  transient failures and shows `SessionRestoreRetry` rather than signing out.
+

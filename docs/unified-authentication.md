@@ -63,9 +63,10 @@ server APIs. The server remains the authentication and authorization authority.
 ## Account policy and legacy demo removal
 
 - Only registered users and explicitly provisioned professional accounts can
-  sign in. All five login forms start with blank credentials; demo buttons,
-  credential pickers and quick-fill shortcuts have been removed.
-- No environment seeds demo accounts. The passwordless User/Doctor/Hospital/
+  sign in. Login forms start with blank credentials. The only prefill is the
+  opt-in demo panel described below, which is never shown unless demo mode is on.
+- No environment seeds demo accounts unless `GH_DEMO_MODE=true` (see
+  "Opt-in demo accounts"). The passwordless User/Doctor/Hospital/
   Pharmacy/News sandboxes and their session renewal/restore logic are removed.
   `GET /api/auth/demo-accounts`, `POST /api/auth/demo-login`, and the old portal
   sandbox mutation routes return JSON 404. Old demo tokens return 401 when used
@@ -82,6 +83,56 @@ server APIs. The server remains the authentication and authorization authority.
 - `PUBLIC_DEMO_ENABLED` and `DEMO_SESSION_SECRET` are retired; setting them cannot
   re-enable demo access. Restart updated server instances to apply the migration
   to their persisted runtime stores.
+
+## Opt-in demo accounts (`GH_DEMO_MODE`)
+
+- `GH_DEMO_MODE=true` seeds exactly one sample account per portal: User
+  (`demo.user@example.test`), Doctor, Hospital, Pharmacy and News. It is off by
+  default and is ignored in production (`NODE_ENV=production` never seeds
+  demo accounts, whatever the flag says).
+- Demo accounts are ordinary password accounts. They sign in through the normal
+  password verifier, MFA and session issuance. No code path creates a session
+  directly. Demo passwords are the built-in defaults unless overridden by the
+  per-role `GH_DEMO_PASSWORD_USER`, `_DOCTOR`, `_HOSPITAL`, `_PHARMACY` and `_NEWS` variables (minimum length enforced). Defaults are
+  for local evaluation only; set your own values for any shared non-production
+  environment.
+- Seeding is idempotent. Restarts never duplicate records or reset passwords of
+  existing demo accounts, and seeding never overwrites a real user's record.
+  Seeded records carry a marker; only that marker identifies a demo record.
+- While demo mode is on, startup pruning keeps the seeded demo accounts. It still
+  removes legacy reserved identities. Turning demo mode off prunes the seeded
+  demo records and their sessions on the next start. Real registrations remain.
+- `GET /api/demo/config` returns the sample credentials only when demo mode is
+  on. When it is off the response is `{ "enabled": false, "accounts": [] }`.
+  The login UI shows a **Fill Demo Account** button only when that response
+  is enabled. The button fills the form and never submits it.
+- Professional workspaces served from the generic private portal show a
+  "Demo account · sample data" badge (`workspace.demo` is true only for seeded
+  demo accounts). The doctor portal has no badge yet.
+- Demo sign-in is not covered on the portal-specific sign-in screens
+  (Doctor, Hospital, Pharmacy and News portal screens). Those screens keep
+  their own session flow and have no Fill button. A successful central
+  sign-in for a professional role opens that portal's own sign-in, which the
+  browser check confirmed for the Hospital portal. Demo accounts are verified
+  through the central sign-in and the API.
+
+## Session restore and logout
+
+- On load, a stored bearer token is verified with `GET /api/auth/me`. A 401 or
+  403 is a server-confirmed rejection: the session is cleared. A network error
+  or 5xx is transient: the token is kept, the check is retried, and if it still
+  fails, a protected route shows "We could not reach GlobalHealth" with a retry
+  button and the app does not redirect to sign-in. Public pages stay usable and
+  the token is kept. Private content stays hidden until the server confirms the
+  session. Verified in a headless browser by aborting `/api/auth/me` and then
+  restoring it. This browser check is not part of the repository suite.
+- Logout revokes the server session and clears every client session key. The
+  old token then returns 401.
+- Professional workspaces load their data from server APIs, which the acceptance
+  suite checks after a restart. The User health
+  dashboard (`PatientEhrContext`) is still a local, browser-stored model and is
+  not hydrated from `/api/me/*`. A demo or real user therefore sees an empty
+  local profile there. This gap is documented and not yet fixed.
 
 ## Registration and deployment requirements
 
@@ -117,6 +168,7 @@ npm run lint
 npm run build
 npm run accept:auth
 npm run accept:no-demo
+npm run accept:demo
 ```
 
 Both acceptance suites start and stop their own isolated servers and remove
@@ -130,7 +182,12 @@ privileged self-provisioning rejection, cache headers, invalid tokens, and globa
 logout/revocation. `accept:no-demo` tests fresh and upgraded development/test/
 production runtimes: retired credentials/tokens, removed endpoints, persisted
 cleanup, preservation of real records/sessions and configured administrators,
-and normal verified registration.
+and normal verified registration. `accept:demo` starts servers with
+`GH_DEMO_MODE=true` and checks: password verification for all five demo roles,
+own-workspace access and cross-role 403, patient-API isolation, survival across
+a SIGTERM restart, idempotent restarts, global logout, and that disabling demo
+mode prunes demo records while real registrations remain. Production ignores
+the flag.
 
 Manual browser checks: each role's central login; refresh and back/forward; role
 selection in signup/recovery; legacy deep links; cross-role hash changes; logout

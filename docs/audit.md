@@ -9,6 +9,14 @@ identities and their sessions from legacy runtime stores. The demo-account
 findings below describe the historical audit baseline, not the current account
 policy. See [Unified authentication](unified-authentication.md) for current behavior.
 
+Update (2026-10-10, demo opt-in): sample accounts return only behind
+`GH_DEMO_MODE=true`, never in production. They go through real password
+verification. Session restore no longer signs out on network or 5xx errors. Open
+gaps: the User health dashboard is local-only (`PatientEhrContext`), the
+portal-specific sign-in screens have no demo Fill button, the doctor workspace has
+no demo badge, and HttpOnly cookies/CSRF and the SQL migration remain
+unimplemented.
+
 Honest status legend: `VERIFIED`, `PARTIAL`, `BLOCKED`, `NOT_IMPLEMENTED`.
 
 ---

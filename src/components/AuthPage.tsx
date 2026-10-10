@@ -17,6 +17,8 @@ import { AccountSecurityView } from './auth/AccountSecurityView';
 import { LogoutSuccessView } from './auth/LogoutSuccessView';
 import { AuthHelpModal } from './auth/AuthHelpModal';
 import { DoctorAvatar, AvatarExpression } from './auth/DoctorAvatar';
+import { DemoAccountPanel } from './auth/DemoAccountPanel';
+import type { DemoPrefill } from '../services/demoAccounts';
 
 interface AuthPageProps {
   initialView?: AuthSubView;
@@ -83,6 +85,11 @@ export const AuthPage: React.FC<AuthPageProps> = ({
 
   // Reset password token handover
   const [recoveryToken, setRecoveryToken] = useState<string>('');
+
+  // Demo-account prefill (demo mode only). It is tagged with its role and only
+  // applied to that role's form; it never submits or signs in by itself.
+  const [demoPrefill, setDemoPrefill] = useState<DemoPrefill | null>(null);
+  const activePrefill = demoPrefill && demoPrefill.role === selectedRole ? demoPrefill : undefined;
 
   useEffect(() => {
     if (initialView) {
@@ -232,7 +239,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 <legend className="mb-3 text-sm font-bold text-slate-800">Choose your account role</legend>
                 <div className="flex flex-wrap gap-2">
                   {PLATFORM_ROLES.map(role => <button key={role} type="button" aria-pressed={selectedRole === role}
-                    onClick={() => { setSelectedRole(role); setVerificationData(null); setRecoveryToken(''); if (!['login', 'signup', 'forgot-password'].includes(activeSubView)) setActiveSubView('login'); }}
+                    onClick={() => { setSelectedRole(role); setDemoPrefill(null); setVerificationData(null); setRecoveryToken(''); if (!['login', 'signup', 'forgot-password'].includes(activeSubView)) setActiveSubView('login'); }}
                     className={`rounded-xl border px-3 py-2 text-sm font-semibold ${selectedRole === role ? 'border-medical-700 bg-medical-700 text-white' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
                     {ROLE_NAMES[role]}
                   </button>)}
@@ -278,11 +285,25 @@ export const AuthPage: React.FC<AuthPageProps> = ({
                 </div>
               )}
 
+              {activeSubView === 'login' && (
+                <DemoAccountPanel
+                  key={selectedRole}
+                  role={selectedRole}
+                  onFill={(account) => setDemoPrefill(previous => ({
+                    role: selectedRole,
+                    identifier: account.identifier,
+                    password: account.password,
+                    nonce: (previous?.nonce ?? 0) + 1,
+                  }))}
+                />
+              )}
+
               {/* View Router — gentle fade/slide between Log In ↔ Sign Up ↔ Recover */}
               <div key={`${selectedRole}:${activeSubView}`} className="gh-auth-view">
-                {selectedRole !== 'user' ? <ProfessionalAuthForm role={selectedRole} mode={activeSubView} onMode={setActiveSubView} onSuccess={onLoginSuccess} /> : <>
+                {selectedRole !== 'user' ? <ProfessionalAuthForm role={selectedRole} mode={activeSubView} onMode={setActiveSubView} onSuccess={onLoginSuccess} prefill={activePrefill} /> : <>
                 {activeSubView === 'login' && (
                   <LoginForm
+                    prefill={activePrefill}
                     onSuccess={(user, token) => {
                       onLoginSuccess(user, token);
 

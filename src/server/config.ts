@@ -5,6 +5,24 @@
 // safe without them (e.g. credential verification fails closed without a
 // registry, prescription signing stays UNSIGNED without a signing secret).
 
+import type { PlatformRole } from '../core/platformRoles';
+import { resolveDemoPasswords, type DemoPasswords } from './demoAccounts';
+
+export const SESSION_DEFAULTS = {
+  /** Public User sessions: sliding inactivity window (unchanged default). */
+  userIdleMs: 7 * 24 * 60 * 60 * 1000,
+  /** Professional portal sessions (doctor, hospital, pharmacy, news). */
+  professionalIdleMs: 12 * 60 * 60 * 1000,
+} as const;
+/** Long-lived window used while demo mode is enabled (non-production only). */
+export const DEMO_SESSION_IDLE_MS = 365 * 24 * 60 * 60 * 1000;
+const MAX_SESSION_IDLE_HOURS = 365 * 24;
+
+export interface SessionPolicy {
+  userIdleMs: number;
+  professionalIdleMs: number;
+}
+
 export interface RuntimeConfig {
   nodeEnv: 'development' | 'test' | 'production';
   isProduction: boolean;
@@ -25,6 +43,12 @@ export interface RuntimeConfig {
     password: string;
     name: string;
   };
+  /** Opt-in demo accounts. Always disabled in production. */
+  demo: {
+    enabled: boolean;
+    passwords: DemoPasswords;
+  };
+  sessionPolicy: SessionPolicy;
   warnings: string[];
 }
 
@@ -48,6 +72,22 @@ function parseTrustProxy(raw: string, isProduction: boolean): boolean | number |
   return value;
 }
 
+/** Resolve session lifetimes. SESSION_IDLE_TTL_HOURS overrides every window;
+ * demo mode otherwise uses a 365-day window so demonstrations persist. */
+function resolveSessionPolicy(raw: string, demoEnabled: boolean, warnings: string[]): SessionPolicy {
+  const value = raw.trim();
+  if (value) {
+    const hours = Number(value);
+    if (Number.isInteger(hours) && hours >= 1 && hours <= MAX_SESSION_IDLE_HOURS) {
+      const ms = hours * 60 * 60 * 1000;
+      return { userIdleMs: ms, professionalIdleMs: ms };
+    }
+    warnings.push(`SESSION_IDLE_TTL_HOURS must be an integer from 1 to ${MAX_SESSION_IDLE_HOURS}; using defaults.`);
+  }
+  if (demoEnabled) return { userIdleMs: DEMO_SESSION_IDLE_MS, professionalIdleMs: DEMO_SESSION_IDLE_MS };
+  return { ...SESSION_DEFAULTS };
+}
+
 export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): RuntimeConfig {
   const nodeEnv = (env.NODE_ENV || 'development').toLowerCase();
   const isProduction = nodeEnv === 'production';
@@ -59,6 +99,16 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   if (!Number.isFinite(port) || port < 1 || port > 65535) {
     warnings.push(`PORT is not a valid TCP port (received "${rawPort}"); using 3000.`);
   }
+
+  // Demo mode is opt-in and fails closed: it can never be enabled in production.
+  const demoRequested = /^(1|true|yes|on)$/i.test((env.GH_DEMO_MODE || '').trim());
+  const demoEnabled = demoRequested && !isProduction;
+  if (demoRequested && isProduction) {
+    warnings.push('GH_DEMO_MODE is ignored in production; demo accounts are never provisioned in production.');
+  }
+  // Override lengths are validated only when demo accounts will actually exist.
+  const demoPasswords = resolveDemoPasswords(demoEnabled ? env : {});
+  const sessionPolicy = resolveSessionPolicy(env.SESSION_IDLE_TTL_HOURS || '', demoEnabled, warnings);
 
   const corsOrigins = (env.CORS_ORIGIN || '')
     .split(',')
@@ -113,6 +163,8 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
       password: (env.NEWS_ADMIN_BOOTSTRAP_PASSWORD || '').trim(),
       name: (env.NEWS_ADMIN_BOOTSTRAP_NAME || 'GlobalHealth News Administrator').trim()
     },
+    demo: { enabled: demoEnabled, passwords: demoPasswords },
+    sessionPolicy,
     warnings
   };
 }

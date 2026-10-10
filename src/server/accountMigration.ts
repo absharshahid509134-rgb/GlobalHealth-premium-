@@ -1,7 +1,16 @@
 import type { PlatformRole } from '../core/platformRoles';
 import { isLegacyDemoAccount, isLegacyDemoSessionToken, isLegacyDemoUserId } from '../core/legacyDemoAccounts';
+import { DEMO_SEED_MARKER } from './demoAccounts';
 
 type Store = Record<string, any>;
+
+export interface DemoMigrationOptions {
+  /** True when GH_DEMO_MODE is enabled: records created by the demo seeder are
+   * retained (and refreshed). When false they are removed like any other demo. */
+  keepSeededDemo?: boolean;
+}
+const isSeededDemo = (value: unknown, options: DemoMigrationOptions) =>
+  !options.keepSeededDemo && !!value && typeof value === 'object' && (value as Record<string, unknown>)[DEMO_SEED_MARKER] === true;
 const asStore = (value: unknown): Store => value && typeof value === 'object' && !Array.isArray(value) ? value as Store : {};
 const list = (value: unknown): any[] => Array.isArray(value) ? value : [];
 const entries = (value: unknown): [string, any][] => list(value)
@@ -9,20 +18,21 @@ const entries = (value: unknown): [string, any][] => list(value)
 
 /** Pure, idempotent migration of older disk-backed user fixtures. Real users
  * (including people with the same name/email as a fixture) are left intact. */
-export function removeDemoUserAccounts(value: unknown) {
+export function removeDemoUserAccounts(value: unknown, options: DemoMigrationOptions = {}) {
   const input = asStore(value);
   // Keep a removal manifest so interrupted cross-file cleanup can be retried
   // on the next startup even after marked users have left the account file.
   const removedUserIds = new Set<string>([
     ...list(input.removedDemoUserIds).filter(id => typeof id === 'string'),
     ...list(input.users)
-    .filter(user => isLegacyDemoAccount('user', user))
+    .filter(user => isLegacyDemoAccount('user', user) || isSeededDemo(user, options))
     .map(user => user.id).filter(id => typeof id === 'string'),
   ]);
   const removed = (id: unknown) => isLegacyDemoUserId(id) || (typeof id === 'string' && removedUserIds.has(id));
   const store = { ...input };
   if (removedUserIds.size) store.removedDemoUserIds = [...removedUserIds];
-  if (Array.isArray(input.users)) store.users = input.users.filter(user => !removed(user?.id) && !isLegacyDemoAccount('user', user));
+  if (Array.isArray(input.users)) store.users = input.users.filter(user =>
+    !removed(user?.id) && !isLegacyDemoAccount('user', user) && !isSeededDemo(user, options));
   if (Array.isArray(input.sessions)) store.sessions = input.sessions.filter(session =>
     !removed(session?.userId) && !session?.isDemoSession && !isLegacyDemoSessionToken(session?.sessionId));
   if (Array.isArray(input.privateData)) store.privateData = input.privateData.filter(entry => !removed(entry?.userId));
@@ -31,14 +41,18 @@ export function removeDemoUserAccounts(value: unknown) {
 
 /** Removes only reserved/marked professional fixtures and their capabilities.
  * Public directories, inventory, and real patients' historical EHRs survive. */
-export function removeDemoDomainAccounts(value: unknown, removedUser: (id: unknown) => boolean = isLegacyDemoUserId) {
+export function removeDemoDomainAccounts(
+  value: unknown,
+  removedUser: (id: unknown) => boolean = isLegacyDemoUserId,
+  options: DemoMigrationOptions = {},
+) {
   const input = asStore(value);
   const store = { ...input };
   const pruneRealm = (role: PlatformRole, accountsKey: string, sessionKeys: string[], idField: string) => {
     const removedIds = new Set<string>();
     const accounts = entries(input[accountsKey]);
     for (const [key, account] of accounts) {
-      if (isLegacyDemoAccount(role, account, key)) {
+      if (isLegacyDemoAccount(role, account, key) || isSeededDemo(account, options)) {
         removedIds.add(key);
         if (typeof account?.[idField] === 'string') removedIds.add(account[idField]);
       }

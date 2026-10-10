@@ -1,13 +1,16 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { ShieldCheck } from 'lucide-react';
 import { PlatformRole, ROLE_NAMES } from '../../core/platformRoles';
 import { AuthSubView, PublicUserAccount } from '../../types/auth';
 import { NewsStaffSignupScreen } from '../news/NewsWorkspaceAccessScreens';
+import type { DemoPrefill } from '../../services/demoAccounts';
 
-export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
+export function ProfessionalAuthForm({ role, mode, onMode, onSuccess, prefill }: {
   role: Exclude<PlatformRole, 'user'>; mode: AuthSubView;
   onMode: (mode: AuthSubView) => void;
   onSuccess: (user: PublicUserAccount, token: string) => void;
+  /** Demo-mode credentials to fill (never submitted automatically). */
+  prefill?: DemoPrefill;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -15,6 +18,12 @@ export function ProfessionalAuthForm({ role, mode, onMode, onSuccess }: {
   const [challenge, setChallenge] = useState('');
   const [developmentCode, setDevelopmentCode] = useState('');
   const [formValues, setFormValues] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!prefill || prefill.role !== role) return;
+    setFormValues((current) => ({ ...current, identifier: prefill.identifier, password: prefill.password }));
+    setError('');
+  }, [prefill?.nonce, role]);
 
   const request = async (action: string, body: unknown) => {
     const response = await fetch(`/api/auth/portal/${role}/${action}`, {

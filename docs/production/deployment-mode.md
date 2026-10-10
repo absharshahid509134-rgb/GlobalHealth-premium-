@@ -61,6 +61,9 @@ MEDAUTH_REGISTRY_SECRET=<server secret>
 # Server-held admin key for pharmacy-partner verification actions.
 GH_ADMIN_KEY=<strong random value>
 
+# Demo accounts are never seeded in production. Do not set GH_DEMO_MODE here;
+# the server ignores it when NODE_ENV=production.
+
 # Prescription signing; when unset prescriptions are prepared but UNSIGNED.
 PRESCRIPTION_SIGNING_SECRET=<strong random value>
 
