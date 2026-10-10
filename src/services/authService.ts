@@ -80,6 +80,24 @@ export async function loginUser(identifier: string, password: string, rememberMe
   }
 }
 
+/** Starts a new, visitor-isolated synthetic User Portal session. */
+export async function startPublicDemoSession() {
+  try {
+    const res = await fetch('/api/auth/demo-login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: '{}',
+      cache: 'no-store'
+    });
+    return await res.json();
+  } catch {
+    return {
+      success: false,
+      error: 'The demo could not connect. Please check your connection and try again.'
+    };
+  }
+}
+
 export async function verifyTwoFactorLogin(challengeId: string, code: string) {
   try {
     const res = await fetch('/api/auth/2fa/login', {

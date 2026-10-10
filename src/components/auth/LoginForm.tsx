@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Lock, Mail, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useLocalization } from '../../context/LocalizationContext';
-import { loginUser, verifyTwoFactorLogin } from '../../services/authService';
+import { loginUser, startPublicDemoSession, verifyTwoFactorLogin } from '../../services/authService';
 import { PublicUserAccount } from '../../types/auth';
 import { AvatarExpression } from './DoctorAvatar';
 import { DemoAccountPicker } from './DemoAccountPicker';
@@ -89,6 +89,27 @@ export const LoginForm: React.FC<LoginFormProps> = ({
       );
       onAvatarInteract?.('error', 'Let me help — check your details and try again.');
     }
+  };
+
+  const handleStartPublicDemo = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+    setIsLoading(true);
+    const result = await startPublicDemoSession();
+
+    if (!result?.success || !result.user || !result.token) {
+      setIsLoading(false);
+      setErrorMessage(result?.error || 'Unable to start the demo right now. Please try again.');
+      onAvatarInteract?.('error', 'I could not open the demo. Please try again in a moment.');
+      return;
+    }
+
+    setSuccessMessage('Your private demo is ready.');
+    onAvatarInteract?.('success', 'Your private demo is ready. Have a look around.');
+    setTimeout(() => {
+      setIsLoading(false);
+      onSuccess(result.user, result.token);
+    }, 350);
   };
 
   const handleSubmitTwoFactor = async (e: React.FormEvent) => {
@@ -328,6 +349,7 @@ export const LoginForm: React.FC<LoginFormProps> = ({
         <DemoAccountPicker
           role="user"
           disabled={isLoading}
+          onStartPublicDemo={handleStartPublicDemo}
           onSelect={(account) => {
             setIdentifier(account.identifier);
             setPassword(account.password);

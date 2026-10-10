@@ -728,6 +728,15 @@ export default function App() {
         </>
       )}
 
+      {publicUser?.isDemoAccount && !isAuthPage && (
+        <div role="status" className="border-b border-emerald-200 bg-emerald-50 px-4 py-2.5">
+          <div className="mx-auto flex max-w-7xl flex-col gap-1 text-xs text-emerald-950 sm:flex-row sm:items-center sm:justify-between">
+            <p><strong>Private demo mode.</strong> All records are synthetic and isolated to this temporary session.</p>
+            <p className="font-medium text-emerald-900">Changes clear at logout or after 4 hours of inactivity. Marketplace orders are disabled.</p>
+          </div>
+        </div>
+      )}
+
       {/* Primary Main View Container — stays mounted under overlays */}
       <main className={isAuthPage ? 'min-h-[100dvh] flex-1' : 'flex-1'}>
         {/* One route-level Suspense boundary: every lazily code-split view below

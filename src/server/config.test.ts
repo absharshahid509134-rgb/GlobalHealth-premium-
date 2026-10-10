@@ -8,6 +8,7 @@ test('loadRuntimeConfig defaults to development with safe defaults', () => {
   assert.equal(cfg.isProduction, false);
   assert.equal(cfg.port, 3000);
   assert.equal(cfg.corsOrigins.length, 0);
+  assert.equal(cfg.publicDemoEnabled, true);
 });
 
 test('loadRuntimeConfig parses production mode and explicit origins', () => {
@@ -19,6 +20,13 @@ test('loadRuntimeConfig parses production mode and explicit origins', () => {
   assert.equal(cfg.isProduction, true);
   assert.equal(cfg.port, 8443);
   assert.deepEqual(cfg.corsOrigins, ['https://globalhealth.example']);
+  assert.equal(cfg.publicDemoEnabled, true);
+});
+
+test('public demo can be disabled and is off by default in test mode', () => {
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'test' }).publicDemoEnabled, false);
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'production', PUBLIC_DEMO_ENABLED: 'false' }).publicDemoEnabled, false);
+  assert.equal(loadRuntimeConfig({ NODE_ENV: 'development', PUBLIC_DEMO_ENABLED: 'false' }).publicDemoEnabled, false);
 });
 
 test('loadRuntimeConfig warns when production critical gates are missing', () => {
