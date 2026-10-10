@@ -64,6 +64,8 @@ export interface PublicUserAccount {
   email: string;
   phoneNumber?: string;
   role: PublicUserRole;
+  /** True when this identity is a synthetic public demo user, not a real account. */
+  isDemoAccount?: boolean;
   accountStatus: AccountStatus;
   isEmailVerified: boolean;
   isPhoneVerified: boolean;

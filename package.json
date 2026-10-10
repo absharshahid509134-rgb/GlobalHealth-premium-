@@ -12,7 +12,8 @@
     "test": "node --import tsx --test 'src/**/*.test.ts'",
     "test:unit": "node --import tsx --test 'src/server/*.test.ts'",
     "accept:ai": "node scripts/acceptance/globalhealth-ai-auth-chat.mjs",
-    "accept:auth": "node scripts/acceptance/unified-auth.mjs"
+    "accept:auth": "node scripts/acceptance/unified-auth.mjs",
+    "accept:demo": "node scripts/acceptance/demo-account.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",

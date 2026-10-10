@@ -61,16 +61,29 @@ clinical editing, hospital operational modules, inventory editing, and CMS autho
 must be migrated to account-scoped server APIs before being re-enabled. This is a
 security boundary, not a claim that all prototype functionality is migrated.
 
-## Development demo accounts
+## Public User Portal demo and development accounts
 
-- The centralized login page offers a role-specific picker for all seeded demo
-  accounts (User, Doctor, Hospital, Pharmacy, and News Management) in
-  development mode. The server catalog is available at
-  `GET /api/auth/demo-accounts`; it is `404` in production and test modes, is
-  not bundled into the frontend, and uses `Cache-Control: no-store, private`.
-- Demo profiles and data are synthetic and for local testing only. News demo
-  administrators still complete MFA; the simulated verification code is shown
-  by the central login form only when the development server returns it.
+- The User login presents **Explore the User Portal demo** when the server
+  returns `demoSessionAvailable: true` from `GET /api/auth/demo-accounts`. Start
+  it with `POST /api/auth/demo-login`; no credential, shared password, or
+  production account is exposed. Each request creates a unique synthetic user
+  ID and opaque server session with its own sample profile, appointments,
+  health records, doctor-consent example, notifications, and private data.
+- Demo data is temporary. It is held in process memory, omitted from all
+  account/domain/EHR-share/AI persistence files, and fully removed on logout or
+  after four hours without activity. Restarting the server also clears it.
+  A visible banner warns that the signed-in identity is a demo and marketplace
+  orders are disabled. Do not enter real health information.
+- `PUBLIC_DEMO_ENABLED` defaults to enabled outside tests; set it to `false` to
+  hide the login option and disable `POST /api/auth/demo-login`. The endpoint
+  is rate-limited and responses use `Cache-Control: no-store, private` and
+  `X-Robots-Tag: noindex, nofollow`.
+- The Sarah/Alex User credentials and seeded Doctor, Hospital, Pharmacy, and
+  News Management role-account pickers are development-only. The
+  `GET /api/auth/demo-accounts` response may include those credentials only in
+  development; production returns availability metadata and never returns
+  development passwords. News demo administrators still complete MFA; any
+  simulated verification code is available only from the development server.
 
 ## Registration and deployment requirements
 
@@ -96,6 +109,10 @@ security boundary, not a claim that all prototype functionality is migrated.
   persistence are retained. Use HTTPS. For multi-instance production deployments,
   migrate the realm adapters to a shared transactional session store and evaluate
   an HttpOnly-cookie/CSRF design; this change does not implement those migrations.
+- The public demo session is memory-only. Keep it on one server instance, or use
+  sticky routing for the lifetime of a session. Sticky routing does not survive
+  process restarts; shared-store support is required before scaling if demo
+  sessions must remain seamless. See [Environment Configuration](ENVIRONMENT.md).
 
 ## Validation
 
@@ -103,6 +120,8 @@ security boundary, not a claim that all prototype functionality is migrated.
 npm test
 npm run build
 npm run dev
+# Against a single-process server with PUBLIC_DEMO_ENABLED=true:
+npm run accept:demo
 # Against a development fixture server only:
 npm run accept:auth
 ```

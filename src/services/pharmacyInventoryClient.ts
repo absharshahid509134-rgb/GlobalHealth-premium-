@@ -8,6 +8,7 @@
 // ---------------------------------------------------------------------------
 
 import { PartnerAvailabilityOption } from '../types/pharmacyMarketplace';
+import { getStoredToken } from './authClient';
 
 export type MarketplaceStockStatus = 'IN_STOCK' | 'LOW_STOCK' | 'OUT_OF_STOCK' | 'DISCONTINUED' | 'NOT_LISTED';
 
@@ -274,9 +275,12 @@ export async function placeMarketplaceOrder(
   | { ok: false; code?: string; error?: string; medicineName?: string; availableQuantity?: number }
 > {
   try {
+    const token = getStoredToken();
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers.Authorization = `Bearer ${token}`;
     const res = await fetch('/api/pharmacy-marketplace/orders', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ items, deliveryFee })
     });
     const data = await res.json().catch(() => null);

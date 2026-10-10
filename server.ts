@@ -69,10 +69,10 @@ async function startServer() {
   const PORT = config.port;
   const IS_PRODUCTION = config.isProduction;
 
-  // The development-only credential catalog backs the login-page demo picker.
-  // These entries mirror accounts seeded below; the catalog endpoint is hidden
-  // entirely in production and is never bundled into the browser application.
-  const DEVELOPMENT_DEMO_ACCOUNTS: Record<PlatformRole, Array<{ label: string; identifier: string; password: string }>> | null = config.nodeEnv === 'development' ? {
+  // Development-only credentials for the legacy seeded role fixtures. Public
+  // deployments get a separate passwordless, isolated user demo session; no
+  // shared production password is ever returned to the browser.
+  const DEVELOPMENT_DEMO_ACCOUNTS: Record<PlatformRole, Array<{ label: string; identifier: string; password: string }>> | null = config.nodeEnv === 'development' && config.publicDemoEnabled ? {
     user: [
       { label: 'Sarah Jenkins — patient demo', identifier: 'sarah.jenkins@example.com', password: 'Password123!' },
       { label: 'Alex Turner — patient demo', identifier: 'alex.turner@example.com', password: 'Password123!' },
@@ -614,6 +614,10 @@ async function startServer() {
       acceptedAt: string;
       method: 'signup_checkbox' | 'login_acknowledgement' | 'settings_reacceptance';
     }[];
+    /** Identifies a synthetic sandbox account; never conveys a privileged role. */
+    isDemoAccount?: boolean;
+    /** Ephemeral visitor-owned demo accounts are not written to persistent stores. */
+    isEphemeralDemo?: boolean;
     createdAt: string;
     lastLoginAt: string;
   }
@@ -629,6 +633,8 @@ async function startServer() {
     location: string;
     createdAt: string;
     lastActive: string;
+    isDemoSession?: boolean;
+    expiresAt?: number;
   }
 
   interface ServerAuditLog {
@@ -696,21 +702,22 @@ async function startServer() {
     return { allowed: true, retryInMs: 0 };
   };
 
-  // Public-user account and session stores. In production, demo accounts and
-  // pre-created sessions are NOT seeded: every login must use a user created
-  // through the signup/verification flow and restored from the account store.
-  const PUBLIC_USERS: Map<string, ServerPublicUser> = new Map();
-  const ACTIVE_SESSIONS: Map<string, ServerSession> = new Map();
-  if (!IS_PRODUCTION) {
-    PUBLIC_USERS.set('usr-sarah-jenkins', {
-      id: 'usr-sarah-jenkins',
+  const DEMO_SESSION_TTL_MS = 4 * 60 * 60 * 1000;
+  const LOCAL_DEMO_USER_ID = 'usr-sarah-jenkins';
+  const LOCAL_SECOND_DEMO_USER_ID = 'usr-alex-turner';
+  const isReservedDemoUserId = (id: string) =>
+    id === LOCAL_DEMO_USER_ID || id === LOCAL_SECOND_DEMO_USER_ID || id.startsWith('usr-demo-');
+
+  function createSarahDemoUser(): ServerPublicUser {
+    return {
+      id: LOCAL_DEMO_USER_ID,
       username: 'sarah_wellness',
       fullName: 'Sarah Jenkins',
       firstName: 'Sarah',
       lastName: 'Jenkins',
       email: 'sarah.jenkins@example.com',
       phoneNumber: '+1 (555) 234-5678',
-      passwordHash: hashSecret('usr-sarah-jenkins', 'Password123!'),
+      passwordHash: hashSecret(LOCAL_DEMO_USER_ID, 'Password123!'),
       role: 'VERIFIED_USER',
       accountStatus: 'ACTIVE',
       isEmailVerified: true,
@@ -721,18 +728,22 @@ async function startServer() {
       dietaryPreferences: ['Mediterranean', 'Heart-Healthy', 'Anti-Inflammatory'],
       healthGoals: ['Balance Blood Glucose', 'Weight & Metabolic Wellness'],
       marketingConsent: true,
+      isDemoAccount: true,
       createdAt: '2026-01-15T10:30:00.000Z',
       lastLoginAt: new Date().toISOString()
-    });
-    PUBLIC_USERS.set('usr-alex-turner', {
-      id: 'usr-alex-turner',
+    };
+  }
+
+  function createAlexDemoUser(): ServerPublicUser {
+    return {
+      id: LOCAL_SECOND_DEMO_USER_ID,
       username: 'alex_turner',
       fullName: 'Alex Turner',
       firstName: 'Alex',
       lastName: 'Turner',
       email: 'alex.turner@example.com',
       phoneNumber: '+1 (555) 876-5432',
-      passwordHash: hashSecret('usr-alex-turner', 'Password123!'),
+      passwordHash: hashSecret(LOCAL_SECOND_DEMO_USER_ID, 'Password123!'),
       role: 'PUBLIC_USER',
       accountStatus: 'ACTIVE',
       isEmailVerified: true,
@@ -743,12 +754,51 @@ async function startServer() {
       dietaryPreferences: ['Gluten-Free'],
       healthGoals: ['General Longevity'],
       marketingConsent: false,
+      isDemoAccount: true,
       createdAt: '2026-02-10T14:20:00.000Z',
       lastLoginAt: new Date().toISOString()
-    });
+    };
+  }
+
+  function createEphemeralDemoUser(): ServerPublicUser {
+    const id = `usr-demo-${randomBytes(16).toString('hex')}`;
+    const handle = id.slice(-8);
+    return {
+      id,
+      username: `demo_${handle}`,
+      fullName: 'Jordan Sample',
+      firstName: 'Jordan',
+      lastName: 'Sample',
+      email: `${id}@demo.invalid`,
+      passwordHash: `disabled-demo-password$${randomBytes(32).toString('hex')}`,
+      role: 'VERIFIED_USER',
+      accountStatus: 'ACTIVE',
+      isEmailVerified: true,
+      isPhoneVerified: false,
+      country: 'India',
+      preferredLanguage: 'English',
+      twoFactor: { enabled: false },
+      dietaryPreferences: ['Balanced'],
+      healthGoals: ['General Wellness'],
+      marketingConsent: false,
+      isDemoAccount: true,
+      isEphemeralDemo: true,
+      createdAt: new Date().toISOString(),
+      lastLoginAt: new Date().toISOString()
+    };
+  }
+
+  // A public demo is an isolated, synthetic User Portal session, never a
+  // shared password. Development also retains credential-backed fixtures for
+  // professional role acceptance tests.
+  const PUBLIC_USERS: Map<string, ServerPublicUser> = new Map();
+  const ACTIVE_SESSIONS: Map<string, ServerSession> = new Map();
+  if (config.nodeEnv === 'development' && config.publicDemoEnabled) {
+    PUBLIC_USERS.set(LOCAL_DEMO_USER_ID, createSarahDemoUser());
+    PUBLIC_USERS.set(LOCAL_SECOND_DEMO_USER_ID, createAlexDemoUser());
     ACTIVE_SESSIONS.set('sess-current-demo', {
       sessionId: 'sess-current-demo',
-      userId: 'usr-sarah-jenkins',
+      userId: LOCAL_DEMO_USER_ID,
       deviceName: 'MacBook Pro (macOS 15)',
       deviceType: 'Desktop',
       browser: 'Chrome 128.0',
@@ -760,7 +810,7 @@ async function startServer() {
     });
     ACTIVE_SESSIONS.set('sess-mobile-demo', {
       sessionId: 'sess-mobile-demo',
-      userId: 'usr-sarah-jenkins',
+      userId: LOCAL_DEMO_USER_ID,
       deviceName: 'iPhone 16 Pro (iOS 18)',
       deviceType: 'Mobile',
       browser: 'Mobile Safari 18.1',
@@ -771,6 +821,9 @@ async function startServer() {
       lastActive: new Date(Date.now() - 7200000).toISOString()
     });
   }
+
+  const isDemoAccountId = (userId: string) =>
+    isReservedDemoUserId(userId) || PUBLIC_USERS.get(userId)?.isDemoAccount === true;
 
   const AUDIT_LOGS: ServerAuditLog[] = [
     {
@@ -788,7 +841,7 @@ async function startServer() {
   // codes are NEVER exposed on normal auth/user responses — they are returned
   // only once during explicit 2FA setup (and never again).
   const sanitizeUser = (user: ServerPublicUser) => {
-    const { passwordHash, verificationCode, resetToken, twoFactor, ...safeUser } = user;
+    const { passwordHash, verificationCode, resetToken, twoFactor, isEphemeralDemo, ...safeUser } = user;
     return {
       ...safeUser,
       twoFactor: {
@@ -1656,14 +1709,19 @@ async function startServer() {
   app.post('/api/auth/logout', (req, res) => {
     const token = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '').trim();
     if (token) {
-      ACTIVE_SESSIONS.delete(token);
-      DOCTOR_SESSIONS.delete(token);
-      HOSPITAL_SESSIONS.delete(token);
-      PHARMACY_PARTNER_SESSIONS.delete(token);
-      NEWS_ADMIN_SESSIONS.delete(token);
-      AUTHORITY_SESSIONS.delete(token);
-      persistRuntimeAccounts();
-      persistDomainState();
+      const session = ACTIVE_SESSIONS.get(token);
+      if (session?.isDemoSession) {
+        cleanupEphemeralDemoAccount(session.userId);
+      } else {
+        ACTIVE_SESSIONS.delete(token);
+        DOCTOR_SESSIONS.delete(token);
+        HOSPITAL_SESSIONS.delete(token);
+        PHARMACY_PARTNER_SESSIONS.delete(token);
+        NEWS_ADMIN_SESSIONS.delete(token);
+        AUTHORITY_SESSIONS.delete(token);
+        persistRuntimeAccounts();
+        persistDomainState();
+      }
     }
     return res.json({
       success: true,
@@ -1710,6 +1768,11 @@ async function startServer() {
       };
     }
   > = new Map();
+
+  // Assigned after all domain stores are declared; auth can safely refer to
+  // it because requests only run once server initialization has completed.
+  let cleanupEphemeralDemoAccount = (_userId: string) => {};
+  let persistDomainStateNow = () => {};
 
   function seedPrivateData(userId: string, fullName: string) {
     if (PRIVATE_DATA.has(userId)) return PRIVATE_DATA.get(userId)!;
@@ -1780,17 +1843,19 @@ async function startServer() {
   }
 
   // ----------------------------------------------------------------------
-  // Disk-backing for the public-user account store. This is NOT a demo cache:
-  // it preserves accounts, sessions, private data, and security state across
-  // restarts. `data/runtime/` is git-ignored and the file is written 0600.
+  // Durable user account data. Public demo sessions are deliberately excluded:
+  // every visitor receives a unique in-memory identity and their sandbox data
+  // is discarded on logout, expiry or process restart.
   // ----------------------------------------------------------------------
   const RUNTIME_ACCOUNT_STORE = path.join(RUNTIME_DIR, 'account-store.json');
   const persistRuntimeAccounts = () => {
     writeSecureJsonFile(RUNTIME_ACCOUNT_STORE, {
       savedAt: new Date().toISOString(),
-      users: [...PUBLIC_USERS.values()],
-      sessions: [...ACTIVE_SESSIONS.values()],
-      privateData: [...PRIVATE_DATA.entries()].map(([userId, data]) => ({ userId, data }))
+      users: [...PUBLIC_USERS.values()].filter((user) => !user.isDemoAccount),
+      sessions: [...ACTIVE_SESSIONS.values()].filter((session) => !isDemoAccountId(session.userId)),
+      privateData: [...PRIVATE_DATA.entries()]
+        .filter(([userId]) => !isDemoAccountId(userId))
+        .map(([userId, data]) => ({ userId, data }))
     });
   };
   try {
@@ -1799,10 +1864,22 @@ async function startServer() {
       sessions?: ServerSession[];
       privateData?: { userId: string; data: any }[];
     }>(RUNTIME_ACCOUNT_STORE, {});
+    const persistedDemoUserIds = new Set(
+      (Array.isArray(persistedAccountStore.users) ? persistedAccountStore.users : [])
+        .filter((user) => user?.isDemoAccount || user?.isEphemeralDemo)
+        .map((user) => user.id)
+    );
     if (Array.isArray(persistedAccountStore.users) && persistedAccountStore.users.length > 0) {
       PUBLIC_USERS.clear();
       for (const user of persistedAccountStore.users) {
-        if (user && typeof user.id === 'string' && typeof user.email === 'string') {
+        if (
+          user &&
+          typeof user.id === 'string' &&
+          typeof user.email === 'string' &&
+          !user.isDemoAccount &&
+          !user.isEphemeralDemo &&
+          !isReservedDemoUserId(user.id)
+        ) {
           PUBLIC_USERS.set(user.id, user);
         }
       }
@@ -1810,7 +1887,14 @@ async function startServer() {
     if (Array.isArray(persistedAccountStore.sessions) && persistedAccountStore.sessions.length > 0) {
       ACTIVE_SESSIONS.clear();
       for (const session of persistedAccountStore.sessions) {
-        if (session && typeof session.sessionId === 'string' && typeof session.userId === 'string') {
+        if (
+          session &&
+          typeof session.sessionId === 'string' &&
+          typeof session.userId === 'string' &&
+          !session.isDemoSession &&
+          !persistedDemoUserIds.has(session.userId) &&
+          !isReservedDemoUserId(session.userId)
+        ) {
           ACTIVE_SESSIONS.set(session.sessionId, session);
         }
       }
@@ -1818,13 +1902,26 @@ async function startServer() {
     if (Array.isArray(persistedAccountStore.privateData) && persistedAccountStore.privateData.length > 0) {
       PRIVATE_DATA.clear();
       for (const entry of persistedAccountStore.privateData) {
-        if (entry && typeof entry.userId === 'string' && entry.data && typeof entry.data === 'object') {
+        if (
+          entry &&
+          typeof entry.userId === 'string' &&
+          entry.data &&
+          typeof entry.data === 'object' &&
+          !persistedDemoUserIds.has(entry.userId) &&
+          !isReservedDemoUserId(entry.userId)
+        ) {
           PRIVATE_DATA.set(entry.userId, entry.data);
         }
       }
     }
   } catch {
     /* load failure already logged */
+  }
+  // Keep local fixture credentials stable even if an older runtime account
+  // file contains stale demo changes. These reserved users are synthetic.
+  if (config.nodeEnv === 'development' && config.publicDemoEnabled) {
+    PUBLIC_USERS.set(LOCAL_DEMO_USER_ID, createSarahDemoUser());
+    PUBLIC_USERS.set(LOCAL_SECOND_DEMO_USER_ID, createAlexDemoUser());
   }
   setInterval(() => persistRuntimeAccounts(), 5000).unref();
 
@@ -1836,6 +1933,13 @@ async function startServer() {
     if (!token) return null;
     const session = ACTIVE_SESSIONS.get(token);
     if (!session) return null;
+
+    // Isolated demo sessions have a short sliding TTL and are fully discarded
+    // when they expire. Ordinary account expiry remains unchanged.
+    if (session.isDemoSession && (!session.expiresAt || session.expiresAt <= Date.now())) {
+      cleanupEphemeralDemoAccount(session.userId);
+      return null;
+    }
 
     // Sliding expiry: invalidate after prolonged inactivity.
     const lastActive = new Date(session.lastActive).getTime();
@@ -1850,6 +1954,7 @@ async function startServer() {
 
     // Slide the window forward on authenticated activity.
     session.lastActive = new Date().toISOString();
+    if (session.isDemoSession) session.expiresAt = Date.now() + DEMO_SESSION_TTL_MS;
     ACTIVE_SESSIONS.set(token, session);
     return user;
   }
@@ -1901,7 +2006,12 @@ async function startServer() {
       { token: string; userId: string; granteeName: string; granteeType: string; scopes: string[]; expiresAt: number; createdAt: number; revokedAt?: number }[]
     >(EHR_CONSENT_SHARE_DIR, []);
     for (const share of persisted) {
-      if (share && typeof share.token === 'string' && typeof share.userId === 'string') {
+      if (
+        share &&
+        typeof share.token === 'string' &&
+        typeof share.userId === 'string' &&
+        !isDemoAccountId(share.userId)
+      ) {
         EHR_CONSENT_SHARES.set(share.token, share);
       }
     }
@@ -1909,7 +2019,10 @@ async function startServer() {
     /* persistence load already logged */
   }
   const persistEhrConsentShares = () =>
-    writeJsonFile(EHR_CONSENT_SHARE_DIR, [...EHR_CONSENT_SHARES.values()]);
+    writeJsonFile(
+      EHR_CONSENT_SHARE_DIR,
+      [...EHR_CONSENT_SHARES.values()].filter((share) => !isDemoAccountId(share.userId))
+    );
 
   // GET /api/auth/me — validate the current session and return the user.
   app.get('/api/auth/me', (req, res) => {
@@ -1924,15 +2037,87 @@ async function startServer() {
     return res.json({ success: true, user: identity.user, portalRole: identity.role, destination: ROLE_DESTINATIONS[identity.role] });
   });
 
-  // Demo credentials are intentionally discoverable only in non-production
-  // runtimes so the centralized auth UI can populate its developer demo picker.
+  // Credentials for legacy role fixtures are returned only by a development
+  // server. Public runtimes expose only the passwordless sandbox availability.
   app.get('/api/auth/demo-accounts', (_req, res) => {
-    if (!DEVELOPMENT_DEMO_ACCOUNTS) {
-      return res.status(404).json({ success: false, code: 'NOT_FOUND', error: 'Not found.' });
-    }
     res.setHeader('Cache-Control', 'no-store, private');
     res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-    return res.json({ success: true, environment: 'development', accounts: DEVELOPMENT_DEMO_ACCOUNTS });
+    if (!config.publicDemoEnabled) {
+      return res.json({ success: true, demoSessionAvailable: false, accounts: {} });
+    }
+    return res.json({
+      success: true,
+      demoSessionAvailable: true,
+      accounts: DEVELOPMENT_DEMO_ACCOUNTS || {}
+    });
+  });
+
+  // Creates an isolated synthetic User Portal identity for this visitor. It
+  // issues no reusable credentials and writes none of its account/session or
+  // private domain data to persistent storage.
+  app.post('/api/auth/demo-login', (req, res) => {
+    if (!config.publicDemoEnabled) {
+      return res.status(404).json({ success: false, code: 'DEMO_DISABLED', error: 'The public demo is currently unavailable.' });
+    }
+    const limit = hitRateLimit('public-demo-login', String(req.ip || 'unknown'), 30, 60 * 60 * 1000);
+    if (!limit.allowed) {
+      res.setHeader('Retry-After', String(Math.ceil(limit.retryInMs / 1000)));
+      return res.status(429).json({ success: false, code: 'RATE_LIMITED', error: 'Too many demo sessions were started. Please try again later.' });
+    }
+
+    const user = createEphemeralDemoUser();
+    const now = new Date().toISOString();
+    const sessionId = secureToken('gh-demo');
+    const session: ServerSession = {
+      sessionId,
+      userId: user.id,
+      deviceName: 'Private demo browser session',
+      deviceType: /Mobi|Android/i.test(String(req.headers['user-agent'] || '')) ? 'Mobile' : 'Desktop',
+      browser: 'Web browser',
+      os: 'Web',
+      ipAddress: 'Private demo session',
+      location: 'Synthetic sandbox',
+      createdAt: now,
+      lastActive: now,
+      isDemoSession: true,
+      expiresAt: Date.now() + DEMO_SESSION_TTL_MS
+    };
+    PUBLIC_USERS.set(user.id, user);
+    ACTIVE_SESSIONS.set(sessionId, session);
+
+    const data = seedPrivateData(user.id, user.fullName);
+    data.healthRecords.push(
+      {
+        id: `rec-${user.id.slice(-4)}-2`,
+        ownerId: user.id,
+        type: 'Vitals',
+        title: 'Wellness check — resting vitals',
+        date: new Date(Date.now() - 14 * 86400000).toISOString().slice(0, 10),
+        provider: 'GlobalHealth Demo Clinic',
+        summary: 'Blood pressure 118/76 mmHg, resting heart rate 72 bpm. Synthetic sample data.'
+      },
+      {
+        id: `rec-${user.id.slice(-4)}-3`,
+        ownerId: user.id,
+        type: 'Immunization',
+        title: 'Seasonal influenza vaccination',
+        date: '2025-09-14',
+        provider: 'GlobalHealth Demo Clinic',
+        summary: 'Synthetic vaccination history item for exploring the portal.'
+      }
+    );
+    seedConsentDemoForPatient(user.id, user.id.slice(-8).toUpperCase());
+
+    res.setHeader('Cache-Control', 'no-store, private');
+    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+    return res.status(201).json({
+      success: true,
+      message: 'Your private synthetic demo is ready.',
+      user: sanitizeUser(user),
+      session: { ...session, isCurrent: true },
+      token: sessionId,
+      expiresAt: session.expiresAt
+    });
   });
 
   // ---- Protected: create a server-scoped EHR access share token ----.
@@ -2439,6 +2624,7 @@ async function startServer() {
     body: string;
     requestId?: string;
     patientName?: string;
+    patientUserId?: string;
     read: boolean;
     at: string;
   }
@@ -2677,14 +2863,25 @@ async function startServer() {
     } as any);
   };
 
-  const pushDoctorNotification = (doctorId: string, n: { type: string; title: string; body: string; requestId?: string; patientName?: string }) => {
+  const pushDoctorNotification = (doctorId: string, n: { type: string; title: string; body: string; requestId?: string; patientName?: string; patientUserId?: string }) => {
+    const requestBelongsToDemo = Boolean(
+      n.requestId &&
+      [...CONSENT_REQUESTS.entries()].some(([patientId, requests]) =>
+        isDemoAccountId(patientId) && requests.some((request) => request.requestId === n.requestId)
+      )
+    );
+    // Demo actions are private to the visitor's sandbox; never write their
+    // activity into a real professional's shared notification feed.
+    if ((n.patientUserId && isDemoAccountId(n.patientUserId)) || requestBelongsToDemo) return;
+
+    const { patientUserId: _patientUserId, ...safeNotification } = n;
     const list = DOCTOR_NOTIFICATIONS.get(doctorId) || [];
     list.unshift({
       id: `dntf-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
       doctorId,
       read: false,
       at: nowIso(),
-      ...n
+      ...safeNotification
     });
     DOCTOR_NOTIFICATIONS.set(doctorId, list);
   };
@@ -2755,43 +2952,38 @@ async function startServer() {
     kind === 'add' ? 'Add' : kind === 'edit' ? 'Edit' : kind === 'remove' ? 'Remove' : 'Access';
 
   // ---------------- DEMO RELATIONSHIP & SEED RECORDS --------------------
-  // Dr. Anita Rao already holds active view access to the demo patient
-  // (expiring soon, to make the "expiring" state visible) and has one
-  // pending lab-report add request awaiting the patient's decision.
-  (function seedConsentDemo() {
-    const sarah = [...PUBLIC_USERS.values()].find((u) => u.email === 'sarah.jenkins@example.com');
-    if (!sarah) return;
-    const pid = sarah.id;
-
+  // Each public demo identity gets its own synthetic EHR relationship and
+  // consent request so signed-in screens have meaningful sample content.
+  function seedConsentDemoForPatient(pid: string, suffix: string) {
     if (!(EHR_RECORDS.get(pid) || []).length) {
       const t = nowIso();
       EHR_RECORDS.set(pid, [
         {
-          recordId: 'rec-seed-cbc',
+          recordId: `rec-demo-${suffix}-cbc`,
           patientUserId: pid,
           category: 'Laboratory Report',
           title: 'Complete Blood Count (CBC)',
           status: 'active',
           createdAt: t,
-          versions: [{ versionId: 'ver-seed-cbc-1', versionNumber: 1, data: 'CBC panel — 18 Jul 2026. All values within normal reference range. Hemoglobin 13.9 g/dL, WBC 6.1, Platelets 244.', createdBy: 'patient', createdAt: t }]
+          versions: [{ versionId: `ver-demo-${suffix}-cbc-1`, versionNumber: 1, data: 'CBC panel — 18 Jul 2026. All values within normal reference range. Hemoglobin 13.9 g/dL, WBC 6.1, Platelets 244. Synthetic demo data.', createdBy: 'patient', createdAt: t }]
         },
         {
-          recordId: 'rec-seed-metformin',
+          recordId: `rec-demo-${suffix}-metformin`,
           patientUserId: pid,
           category: 'Medication',
           title: 'Metformin 500 mg — twice daily',
           status: 'active',
           createdAt: t,
-          versions: [{ versionId: 'ver-seed-mtf-1', versionNumber: 1, data: 'Metformin 500 mg with food, twice daily, started 12 Jun 2026. Purpose: blood glucose management.', createdBy: 'patient', createdAt: t }]
+          versions: [{ versionId: `ver-demo-${suffix}-mtf-1`, versionNumber: 1, data: 'Synthetic demo medication record. Metformin 500 mg with food, twice daily, started 12 Jun 2026. This is sample information, not a prescription.', createdBy: 'patient', createdAt: t }]
         },
         {
-          recordId: 'rec-seed-note',
+          recordId: `rec-demo-${suffix}-note`,
           patientUserId: pid,
           category: 'Clinical Note',
           title: 'Annual check-up summary',
           status: 'active',
           createdAt: t,
-          versions: [{ versionId: 'ver-seed-note-1', versionNumber: 1, data: 'Annual check-up 02 Jul 2026. BP 118/76, HR 72. Weight stable. Continue current plan; repeat HbA1c in 3 months.', createdBy: 'patient', createdAt: t }]
+          versions: [{ versionId: `ver-demo-${suffix}-note-1`, versionNumber: 1, data: 'Synthetic demo note. Annual check-up 02 Jul 2026. BP 118/76, HR 72. Sample content only; not medical advice.', createdBy: 'patient', createdAt: t }]
         }
       ]);
     }
@@ -2799,7 +2991,7 @@ async function startServer() {
     if (!(DOCTOR_ACCESS.get(pid) || []).some((g) => g.doctorId === 'doc-1')) {
       DOCTOR_ACCESS.set(pid, [
         {
-          accessId: 'acc-demo-1',
+          accessId: `acc-demo-${suffix}`,
           patientUserId: pid,
           doctorId: 'doc-1',
           scope: ['profile', 'clinical', 'medications', 'allergies', 'labs', 'prescriptions', 'documents'],
@@ -2807,7 +2999,7 @@ async function startServer() {
           isEmergency: false,
           status: 'active',
           grantedAt: new Date(Date.now() - 353 * 86400000).toISOString(),
-          expiresAt: new Date(Date.now() + 12 * 86400000).toISOString(), // expiring soon
+          expiresAt: new Date(Date.now() + 12 * 86400000).toISOString(),
           revokedAt: null,
           lastViewedAt: new Date(Date.now() - 3 * 3600000).toISOString()
         }
@@ -2816,16 +3008,16 @@ async function startServer() {
 
     if (!(CONSENT_REQUESTS.get(pid) || []).length) {
       const req: ConsentRequest = {
-        requestId: 'GH-REQ-DEMO0001',
+        requestId: `GH-REQ-DEMO${suffix}`,
         patientUserId: pid,
         doctorId: 'doc-1',
         kind: 'add',
         recordCategory: 'Laboratory Report',
         title: 'Add recent HbA1c laboratory results',
-        summary: 'Add the HbA1c and fasting blood glucose results from your 24 Aug consultation.',
-        reason: 'Add recently received laboratory results from the patient’s follow-up consultation.',
-        explanation: 'These results were collected during your recent visit and have not yet been filed in your record.',
-        proposedValue: 'HbA1c 6.4% (target < 7.0%). Fasting glucose 112 mg/dL. Estimated average glucose ~137 mg/dL. No critical flags; continue current plan.',
+        summary: 'Add the HbA1c and fasting blood glucose results from a recent synthetic consultation.',
+        reason: 'This synthetic request demonstrates how patient consent works before a record is changed.',
+        explanation: 'Sample request only. No real clinic visit or laboratory result is associated with this demo.',
+        proposedValue: 'Synthetic sample: HbA1c 6.4%, fasting glucose 112 mg/dL. This is not a real result and must not be used for care.',
         clarifications: [],
         status: 'pending',
         priority: 'normal',
@@ -2848,7 +3040,14 @@ async function startServer() {
         detail: req.reason
       });
     }
-  })();
+  }
+
+  // Keep Sarah's historical local fixture relationship, but never attach it to
+  // a deployed public account. New public visitors are seeded on demand above.
+  if (config.nodeEnv === 'development' && config.publicDemoEnabled) {
+    const sarah = [...PUBLIC_USERS.values()].find((u) => u.email === 'sarah.jenkins@example.com');
+    if (sarah) seedConsentDemoForPatient(sarah.id, 'LOCAL');
+  }
 
   // ---------------- DOCTOR AUTH -----------------------------------------
   const DOCTOR_LOGIN_ATTEMPTS: Map<string, AttemptWindow> = new Map();
@@ -3973,7 +4172,8 @@ async function startServer() {
       type: 'emergency',
       title: 'Emergency access granted',
       body: `Break-glass view access active for up to 2 hours. Reason on file. All views are recorded.`,
-      patientName: PUBLIC_USERS.get(patientUserId)?.fullName
+      patientName: PUBLIC_USERS.get(patientUserId)?.fullName,
+      patientUserId
     });
 
     return res.status(201).json({
@@ -4551,7 +4751,8 @@ Request ID: ${requestId}`,
       type: 'revoked',
       title: 'Your access was revoked',
       body: `The patient has revoked your access to their health record${cancelled ? ` and ${cancelled} pending request(s) were cancelled` : ''}. Future access attempts will be denied and recorded.`,
-      patientName: user.fullName
+      patientName: user.fullName,
+      patientUserId: user.id
     });
     sendGmail(user.id, {
       type: 'ACCESS_REVOKED',
@@ -6602,6 +6803,14 @@ Request ID: ${requestId}`,
   const MARKET_ORDERS: Map<string, any> = new Map();
 
   app.post('/api/pharmacy-marketplace/orders', (req, res) => {
+    const identity = platformIdentity(req);
+    if (identity?.user?.isDemoAccount) {
+      return res.status(403).json({
+        success: false,
+        code: 'DEMO_ACTION_BLOCKED',
+        error: 'Marketplace orders are disabled in the public demo. Your sandbox cannot reserve live pharmacy inventory.'
+      });
+    }
     try {
       const items = Array.isArray(req.body?.items) ? req.body.items : [];
       if (items.length === 0) {
@@ -8051,6 +8260,7 @@ Request ID: ${requestId}`,
         c &&
         typeof c.id === 'string' &&
         typeof c.userId === 'string' &&
+        !isDemoAccountId(c.userId) &&
         Array.isArray(c.messages)
       ) {
         AI_CONVERSATIONS.set(c.id, {
@@ -8066,7 +8276,13 @@ Request ID: ${requestId}`,
       []
     );
     for (const share of persistedShares) {
-      if (share && typeof share.token === 'string' && typeof share.conversationId === 'string') {
+      if (
+        share &&
+        typeof share.token === 'string' &&
+        typeof share.conversationId === 'string' &&
+        typeof share.userId === 'string' &&
+        !isDemoAccountId(share.userId)
+      ) {
         AI_SHARE_LINKS.set(share.token, share);
       }
     }
@@ -8074,8 +8290,87 @@ Request ID: ${requestId}`,
     console.warn('[GlobalHealth] AI persistence could not be restored:', (err as Error)?.message);
   }
 
-  const persistAiConversations = () => writeJsonFile(AI_CONVERSATIONS_FILE, [...AI_CONVERSATIONS.values()]);
-  const persistAiShareLinks = () => writeJsonFile(AI_SHARE_LINKS_FILE, [...AI_SHARE_LINKS.values()]);
+  const persistAiConversations = () =>
+    writeJsonFile(
+      AI_CONVERSATIONS_FILE,
+      [...AI_CONVERSATIONS.values()].filter((conversation) => !isDemoAccountId(conversation.userId))
+    );
+  const persistAiShareLinks = () =>
+    writeJsonFile(
+      AI_SHARE_LINKS_FILE,
+      [...AI_SHARE_LINKS.values()].filter((share) => !isDemoAccountId(share.userId))
+    );
+
+  cleanupEphemeralDemoAccount = (userId: string) => {
+    const user = PUBLIC_USERS.get(userId);
+    if (!user?.isEphemeralDemo) {
+      for (const [token, session] of ACTIVE_SESSIONS.entries()) {
+        if (session.userId === userId && session.isDemoSession) ACTIVE_SESSIONS.delete(token);
+      }
+      return;
+    }
+
+    const requests = CONSENT_REQUESTS.get(userId) || [];
+    const requestIds = new Set(requests.map((request) => request.requestId));
+    for (const request of requests) {
+      if (request.attachment?.attachmentId) ATTACHMENTS.delete(request.attachment.attachmentId);
+    }
+
+    for (const [token, session] of ACTIVE_SESSIONS.entries()) {
+      if (session.userId === userId) ACTIVE_SESSIONS.delete(token);
+    }
+    PUBLIC_USERS.delete(userId);
+    PRIVATE_DATA.delete(userId);
+    CONSENT_REQUESTS.delete(userId);
+    DOCTOR_ACCESS.delete(userId);
+    EHR_RECORDS.delete(userId);
+    EMAIL_OUTBOX.delete(userId);
+    RETENTION_ARCHIVE.delete(userId);
+    REAUTH_ATTEMPTS.delete(userId);
+    for (const [token, share] of EHR_CONSENT_SHARES.entries()) {
+      if (share.userId === userId) EHR_CONSENT_SHARES.delete(token);
+    }
+    for (const [token, link] of EMAIL_LINK_TOKENS.entries()) {
+      if (link.patientUserId === userId) EMAIL_LINK_TOKENS.delete(token);
+    }
+    for (const requestId of requestIds) DECIDED_REQUESTS.delete(requestId);
+    for (const [doctorId, notifications] of DOCTOR_NOTIFICATIONS.entries()) {
+      const remaining = notifications.filter((notification) =>
+        notification.patientUserId !== userId && !requestIds.has(notification.requestId || '')
+      );
+      if (remaining.length) DOCTOR_NOTIFICATIONS.set(doctorId, remaining);
+      else DOCTOR_NOTIFICATIONS.delete(doctorId);
+    }
+    for (let index = consentAudit.length - 1; index >= 0; index -= 1) {
+      if (consentAudit[index]?.patientUserId === userId) consentAudit.splice(index, 1);
+    }
+    lastAuditHash.delete(userId);
+    for (const [conversationId, conversation] of AI_CONVERSATIONS.entries()) {
+      if (conversation.userId === userId) AI_CONVERSATIONS.delete(conversationId);
+    }
+    for (const [token, share] of AI_SHARE_LINKS.entries()) {
+      if (share.userId === userId) AI_SHARE_LINKS.delete(token);
+    }
+    for (let index = AUDIT_LOGS.length - 1; index >= 0; index -= 1) {
+      if (AUDIT_LOGS[index]?.userId === userId) AUDIT_LOGS.splice(index, 1);
+    }
+
+    persistRuntimeAccounts();
+    persistEhrConsentShares();
+    persistAiConversations();
+    persistAiShareLinks();
+    persistDomainStateNow();
+  };
+
+  const demoExpirySweeper = setInterval(() => {
+    const now = Date.now();
+    for (const session of [...ACTIVE_SESSIONS.values()]) {
+      if (session.isDemoSession && (!session.expiresAt || session.expiresAt <= now)) {
+        cleanupEphemeralDemoAccount(session.userId);
+      }
+    }
+  }, 60 * 1000);
+  demoExpirySweeper.unref();
 
   const aiConvId = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
@@ -8508,19 +8803,32 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
   // ----------------------------------------------------------------------
   const RUNTIME_DOMAIN_STORE = path.join(RUNTIME_DIR, 'domain-store.json');
   const persistDomainState = () => {
+    const demoRequestIds = new Set(
+      [...CONSENT_REQUESTS.entries()]
+        .filter(([patientId]) => isDemoAccountId(patientId))
+        .flatMap(([, requests]) => requests.map((request) => request.requestId))
+    );
+    const demoAttachmentIds = new Set(
+      [...CONSENT_REQUESTS.entries()]
+        .filter(([patientId]) => isDemoAccountId(patientId))
+        .flatMap(([, requests]) => requests.map((request) => request.attachment?.attachmentId).filter(Boolean))
+    );
     writeSecureJsonFile(RUNTIME_DOMAIN_STORE, {
       savedAt: new Date().toISOString(),
       doctors: [...DOCTORS.entries()],
       doctorSessions: [...DOCTOR_SESSIONS.entries()],
       doctorResetTokens: [...DOCTOR_RESET_TOKENS.entries()],
       doctorApplications: [...DOCTOR_APPLICATIONS.entries()],
-      consentRequests: [...CONSENT_REQUESTS.entries()],
-      doctorAccess: [...DOCTOR_ACCESS.entries()],
-      ehrRecords: [...EHR_RECORDS.entries()],
-      attachments: [...ATTACHMENTS.entries()],
-      doctorNotifications: [...DOCTOR_NOTIFICATIONS.entries()],
-      retentionArchive: [...RETENTION_ARCHIVE.entries()],
-      decidedRequests: [...DECIDED_REQUESTS.entries()],
+      consentRequests: [...CONSENT_REQUESTS.entries()].filter(([patientId]) => !isDemoAccountId(patientId)),
+      doctorAccess: [...DOCTOR_ACCESS.entries()].filter(([patientId]) => !isDemoAccountId(patientId)),
+      ehrRecords: [...EHR_RECORDS.entries()].filter(([patientId]) => !isDemoAccountId(patientId)),
+      attachments: [...ATTACHMENTS.entries()].filter(([attachmentId]) => !demoAttachmentIds.has(attachmentId)),
+      doctorNotifications: [...DOCTOR_NOTIFICATIONS.entries()].map(([doctorId, notifications]) => [
+        doctorId,
+        notifications.filter((notification) => !demoRequestIds.has(notification.requestId || ''))
+      ]),
+      retentionArchive: [...RETENTION_ARCHIVE.entries()].filter(([patientId]) => !isDemoAccountId(patientId)),
+      decidedRequests: [...DECIDED_REQUESTS.entries()].filter(([requestId]) => !demoRequestIds.has(requestId)),
       newsAdmins: [...NEWS_ADMINS.entries()],
       authorities: [...AUTHORITIES.entries()],
       newsAdminSessions: [...NEWS_ADMIN_SESSIONS.entries()],
@@ -8540,6 +8848,7 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
       hospitalResetTokens: [...HOSPITAL_RESET_TOKENS.entries()]
     });
   };
+  persistDomainStateNow = persistDomainState;
   {
     // Demo professional credentials are never valid on a fresh production deployment.
     if (IS_PRODUCTION) { DOCTORS.clear(); HOSPITAL_ACCOUNTS.clear(); PHARMACY_PARTNER_ACCOUNTS.clear(); }
@@ -8548,17 +8857,50 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
       if (!Array.isArray(entries)) return;
       for (const [key, value] of entries as [any, any][]) setter(key, value);
     };
+    const persistedDemoRequests = (Array.isArray(persisted.consentRequests) ? persisted.consentRequests : [])
+      .filter((entry: any) => Array.isArray(entry) && isDemoAccountId(String(entry[0])))
+      .flatMap(([, requests]: any[]) => Array.isArray(requests) ? requests : []);
+    const persistedDemoRequestIds = new Set(persistedDemoRequests.map((request: any) => String(request?.requestId || '')));
+    const persistedDemoAttachmentIds = new Set(
+      persistedDemoRequests.map((request: any) => request?.attachment?.attachmentId).filter(Boolean)
+    );
+    const applyNonDemoPatientEntries = (entries: any, setter: (key: any, value: any) => void) => {
+      if (!Array.isArray(entries)) return;
+      for (const [key, value] of entries as [any, any][]) {
+        if (!isDemoAccountId(String(key))) setter(key, value);
+      }
+    };
     apply(persisted.doctors as any, (k, v) => DOCTORS.set(k, v));
     apply(persisted.doctorSessions as any, (k, v) => DOCTOR_SESSIONS.set(k, v));
     apply(persisted.doctorResetTokens as any, (k, v) => DOCTOR_RESET_TOKENS.set(k, v));
     apply(persisted.doctorApplications as any, (k, v) => DOCTOR_APPLICATIONS.set(k, v));
-    apply(persisted.consentRequests as any, (k, v) => CONSENT_REQUESTS.set(k, v));
-    apply(persisted.doctorAccess as any, (k, v) => DOCTOR_ACCESS.set(k, v));
-    apply(persisted.ehrRecords as any, (k, v) => EHR_RECORDS.set(k, v));
-    apply(persisted.attachments as any, (k, v) => ATTACHMENTS.set(k, v));
-    apply(persisted.doctorNotifications as any, (k, v) => DOCTOR_NOTIFICATIONS.set(k, v));
-    apply(persisted.retentionArchive as any, (k, v) => RETENTION_ARCHIVE.set(k, v));
-    apply(persisted.decidedRequests as any, (k, v) => DECIDED_REQUESTS.set(k, v));
+    applyNonDemoPatientEntries(persisted.consentRequests as any, (k, v) => CONSENT_REQUESTS.set(k, v));
+    applyNonDemoPatientEntries(persisted.doctorAccess as any, (k, v) => DOCTOR_ACCESS.set(k, v));
+    applyNonDemoPatientEntries(persisted.ehrRecords as any, (k, v) => EHR_RECORDS.set(k, v));
+    apply(
+      Array.isArray(persisted.attachments)
+        ? persisted.attachments.filter(([attachmentId]: any[]) => !persistedDemoAttachmentIds.has(attachmentId))
+        : [],
+      (k, v) => ATTACHMENTS.set(k, v)
+    );
+    apply(
+      Array.isArray(persisted.doctorNotifications)
+        ? persisted.doctorNotifications.map(([doctorId, notifications]: any[]) => [
+            doctorId,
+            Array.isArray(notifications)
+              ? notifications.filter((notification: any) => !persistedDemoRequestIds.has(String(notification?.requestId || '')))
+              : []
+          ])
+        : [],
+      (k, v) => DOCTOR_NOTIFICATIONS.set(k, v)
+    );
+    applyNonDemoPatientEntries(persisted.retentionArchive as any, (k, v) => RETENTION_ARCHIVE.set(k, v));
+    apply(
+      Array.isArray(persisted.decidedRequests)
+        ? persisted.decidedRequests.filter(([requestId]: any[]) => !persistedDemoRequestIds.has(String(requestId)))
+        : [],
+      (k, v) => DECIDED_REQUESTS.set(k, v)
+    );
     apply(persisted.newsAdmins as any, (k, v) => NEWS_ADMINS.set(k, v));
     apply(persisted.authorities as any, (k, v) => AUTHORITIES.set(k, v));
     apply(persisted.newsAdminSessions as any, (k, v) => NEWS_ADMIN_SESSIONS.set(k, v));

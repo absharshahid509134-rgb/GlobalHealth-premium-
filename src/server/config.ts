@@ -18,6 +18,8 @@ export interface RuntimeConfig {
   medAuthRegistrySecret: string;
   prescriptionSigningSecret: string;
   ghAdminKey: string;
+  /** Public, passwordless entry to an isolated synthetic user sandbox. */
+  publicDemoEnabled: boolean;
   newsAdminBootstrap: {
     email: string;
     password: string;
@@ -52,6 +54,11 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
   const medAuthRegistrySecret = (env.MEDAUTH_REGISTRY_SECRET || '').trim();
   const prescriptionSigningSecret = (env.PRESCRIPTION_SIGNING_SECRET || '').trim();
   const ghAdminKey = (env.GH_ADMIN_KEY || '').trim();
+  // A synthetic, isolated demo is available by default in local and deployed
+  // runtimes. Tests stay closed unless explicitly enabled to avoid accidental
+  // exposure from fixture servers.
+  const publicDemoOverride = (env.PUBLIC_DEMO_ENABLED || '').trim().toLowerCase();
+  const publicDemoEnabled = publicDemoOverride === 'true' || (!isTest && publicDemoOverride !== 'false');
 
   if (isProduction && !ghAdminKey) {
     warnings.push('GH_ADMIN_KEY is not set; pharmacy-partner administrative verification is disabled.');
@@ -88,6 +95,7 @@ export function loadRuntimeConfig(env: NodeJS.ProcessEnv = process.env): Runtime
     medAuthRegistrySecret,
     prescriptionSigningSecret,
     ghAdminKey,
+    publicDemoEnabled,
     newsAdminBootstrap: {
       email: (env.NEWS_ADMIN_BOOTSTRAP_EMAIL || '').trim(),
       password: (env.NEWS_ADMIN_BOOTSTRAP_PASSWORD || '').trim(),
