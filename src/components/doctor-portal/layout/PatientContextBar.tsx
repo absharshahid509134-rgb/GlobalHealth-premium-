@@ -46,6 +46,8 @@ export const PatientContextBar: React.FC<PatientContextBarProps> = ({
   const isPending = patient.consentStatus === 'pending';
   const isDenied = patient.consentStatus === 'denied';
   const isExpired = patient.consentStatus === 'expired';
+  const expiryDate = patient.accessExpiresAt ? new Date(patient.accessExpiresAt) : null;
+  const isExpiringSoon = !!expiryDate && expiryDate.getTime() > Date.now() && expiryDate.getTime() - Date.now() < 30 * 24 * 60 * 60 * 1000;
 
   const scopes = patient.consentedScopes || ['basic'];
 
@@ -140,7 +142,12 @@ export const PatientContextBar: React.FC<PatientContextBarProps> = ({
 
           {/* Consented scopes list */}
           {isGranted && (
-            <div className="hidden md:flex items-center gap-1 text-[10px]">
+            <div className="hidden md:flex items-center gap-2 text-[10px]">
+              {patient.accessExpiresAt && (
+                <span className={`font-semibold ${isExpiringSoon ? 'text-amber-700' : 'text-slate-500'}`}>
+                  Access until {expiryDate?.toLocaleDateString()}{isExpiringSoon ? ' · expiring soon' : ''}
+                </span>
+              )}
               <span className="text-slate-500 font-medium">Authorized Scopes:</span>
               <div className="flex flex-wrap gap-1">
                 {scopes.map((scope) => (

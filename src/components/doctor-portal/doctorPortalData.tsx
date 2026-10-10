@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useMemo, useState, useCallback } from 'react';
-import { createAuditEvent, AuditEventInput } from '../../core/audit';
+import React, { createContext, useContext, useMemo, useState, useCallback, useEffect } from 'react';
+import { AuditEventInput } from '../../core/audit';
 import { DOCTOR_PERMISSIONS, Permission } from '../../core/portalRoles';
+import { doctorApi, getDoctorSessionToken } from '../../services/doctorPortalClient';
 
 /* ============================================================================
    Doctor Portal — data model, seed data, mock service and workspace store.
@@ -34,6 +35,7 @@ export interface DoctorProfile {
   fullName: string;
   professionalTitle: string;
   specialty: string;
+  organization?: string;
   subSpecialties: string[];
   qualifications: string[];
   bio: string;
@@ -439,67 +441,20 @@ export const seedNotificationPrefs: Record<string, boolean> = {
 };
 
 /* ------------------------------------------------------------------ */
-/* Mock service — replaceable by a real backend                        */
+/* Server service boundary                                             */
 /* ------------------------------------------------------------------ */
 
-const wait = (ms = 450) => new Promise((r) => setTimeout(r, ms));
-
+// Authentication and onboarding are server-authoritative. The workspace
+// provider below still owns presentation state for non-clinical modules, but
+// it must never manufacture a doctor identity or credential success in the
+// browser.
 export const doctorPortalApi = {
-  async login(identifier: string, password: string) {
-    await wait();
-    if (identifier.trim().toLowerCase() === 'priya.nair@example.com' && password.length >= 8) {
-      return { success: true as const, doctor: seedDoctor };
-    }
-    if (identifier.trim() && password.length >= 8) {
-      // Any other well-formed credentials create a fresh (unverified) doctor.
-      const fresh: DoctorProfile = {
-        ...seedDoctor,
-        id: `doc-${Date.now()}`,
-        userId: `usr-doc-${Date.now()}`,
-        displayName: 'Dr. New Physician',
-        fullName: 'Dr. New Physician',
-        professionalTitle: 'Consultant',
-        specialty: 'General Medicine',
-        subSpecialties: [],
-        qualifications: [],
-        bio: '',
-        languages: [],
-        yearsOfPractice: 0,
-        areasOfPractice: [],
-        phone: '',
-        workEmail: identifier.trim(),
-        verificationStatus: 'not_started',
-        profileCompleteness: 0,
-        missingProfileFields: ['Complete professional information', 'Submit credentials', 'Add affiliations', 'Configure availability'],
-        publicStatus: 'draft',
-      };
-      return { success: true as const, doctor: fresh };
-    }
-    return { success: false as const, error: 'Unable to sign in with those credentials.' };
-  },
-
-  async signup() {
-    await wait();
-    return { success: true as const, doctor: null as null, verificationRequired: true };
-  },
-
-  async verify(_code: string) {
-    await wait();
-    // Local verification is intentionally non-authoritative. The server-side
-    // verification flow must confirm any real activation; this guard prevents
-    // a universal/demo code from ever completing a client-side sign-up.
-    return { success: false as const, error: 'This sign-up must be completed through the server-verified activation flow.' };
-  },
-
-  async forgot() {
-    await wait();
-    return { success: true as const };
-  },
-
-  async reset() {
-    await wait();
-    return { success: true as const };
-  },
+  login: doctorApi.login,
+  restoreSession: doctorApi.restoreSession,
+  logout: doctorApi.logout,
+  requestPasswordReset: doctorApi.requestPasswordReset,
+  completePasswordReset: doctorApi.completePasswordReset,
+  submitApplication: doctorApi.submitApplication,
 };
 
 /* ------------------------------------------------------------------ */
@@ -572,154 +527,163 @@ export const useDoctorPortal = (): DoctorPortalState => {
 
 export const DoctorPortalProvider: React.FC<{ children: React.ReactNode; initialDoctor: DoctorProfile }> = ({ children, initialDoctor }) => {
   const [doctor, setDoctor] = useState<DoctorProfile>(initialDoctor);
-  const [activeFacilityId, setActiveFacility] = useState('fac-ghmc');
-  const [credentials, setCredentials] = useState<Credential[]>(seedCredentials);
-  const [affiliations, setAffiliations] = useState<Affiliation[]>(seedAffiliations);
-  const [availability, setAvailability] = useState<AvailabilityRule[]>(seedAvailability);
-  const [exceptions, setExceptions] = useState<AvailabilityException[]>(seedExceptions);
-  const [appointments, setAppointments] = useState<Appointment[]>(seedAppointments);
-  const [messages, setMessages] = useState<SecureMessage[]>(seedMessages);
-  const [notifications, setNotifications] = useState<NotificationItem[]>(seedNotifications);
-  const [referrals, setReferrals] = useState<Referral[]>(seedReferrals);
-  const [documents, setDocuments] = useState<PortalDocument[]>(seedDocuments);
-  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>(seedAudit);
-  const [sessions, setSessions] = useState<Session[]>(seedSessions);
-  const [delegated, setDelegated] = useState<DelegatedAccess[]>(seedDelegatedAccess);
-  const [tickets, setTickets] = useState<SupportTicket[]>(seedTickets);
-  const [security, setSecurity] = useState<SecurityState>(seedSecurity);
+  // Facility context is server-owned. Until an affiliation endpoint is
+  // connected, do not select a fixture facility in the authenticated store.
+  const [activeFacilityId] = useState('');
+  const setActiveFacility = useCallback((_id: string) => {
+    // Facility affiliation is server-owned; the client cannot switch to a fixture context.
+  }, []);
+  // Professional and clinical records are server-owned. The old prototype
+  // fixtures remain exported for isolated UI development, but are never
+  // presented as a live authenticated doctor's workspace.
+  const [credentials, setCredentials] = useState<Credential[]>([]);
+  const [affiliations, setAffiliations] = useState<Affiliation[]>([]);
+  const [availability, setAvailability] = useState<AvailabilityRule[]>([]);
+  const [exceptions, setExceptions] = useState<AvailabilityException[]>([]);
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [messages, setMessages] = useState<SecureMessage[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [referrals, setReferrals] = useState<Referral[]>([]);
+  const [documents, setDocuments] = useState<PortalDocument[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [delegated, setDelegated] = useState<DelegatedAccess[]>([]);
+  const [tickets, setTickets] = useState<SupportTicket[]>([]);
+  const [security, setSecurity] = useState<SecurityState>({ mfaEnabled: false, recentLogins: [], connectedDevices: [], alerts: [] });
   const [notificationPrefs, setNotificationPrefs] = useState<Record<string, boolean>>(seedNotificationPrefs);
 
-  const updateProfile = useCallback((patch: Partial<DoctorProfile>) => {
-    setDoctor((prev) => {
-      const next = { ...prev, ...patch, updatedAt: new Date().toISOString() };
-      // Honest completeness: computed from what is actually missing.
-      const missing: string[] = [];
-      if (!next.bio.trim()) missing.push('Add professional biography');
-      if (!next.profilePhoto) missing.push('Add profile photograph');
-      if (!next.languages.length) missing.push('Add languages');
-      if (!next.yearsOfPractice) missing.push('Add years of practice');
-      if (!next.qualifications.length) missing.push('Add qualifications');
-      if (next.verificationStatus === 'not_started') missing.push('Complete professional verification');
-      const total = 6;
-      const done = total - missing.length;
-      next.profileCompleteness = Math.min(100, Math.round((done / total) * 100));
-      next.missingProfileFields = missing;
-      return next;
-    });
-  }, []);
-
-  const updateVerificationStatus = useCallback((status: VerificationStatus) => {
-    setDoctor((prev) => ({ ...prev, verificationStatus: status, updatedAt: new Date().toISOString() }));
-  }, []);
-
-  const addCredential: DoctorPortalState['addCredential'] = useCallback((c) => {
-    setCredentials((prev) => [
-      ...prev,
-      {
-        id: `cred-${Date.now()}`,
-        doctorId: doctor.id,
-        title: c.title,
-        authority: c.authority,
-        registrationNumber: c.registrationNumber,
-        issuedAt: c.issuedAt || new Date().toISOString().slice(0, 10),
-        expiresAt: c.expiresAt,
-        status: c.status || 'pending_verification',
-        documentName: c.documentName,
-      },
-    ]);
+  useEffect(() => {
+    if (!getDoctorSessionToken()) return;
+    let cancelled = false;
+    Promise.all([doctorApi.listNotifications(), doctorApi.listAuditHistory()])
+      .then(([notificationResponse, auditResponse]) => {
+        if (cancelled) return;
+        setNotifications(notificationResponse.notifications.map((item) => ({
+          id: item.id,
+          title: item.title,
+          message: item.body,
+          date: item.at,
+          read: item.read,
+        })));
+        setAuditEvents(auditResponse.events.map((event) => ({
+          id: event.auditId,
+          actor: event.actorName,
+          action: event.eventType,
+          resource: event.resourceId || event.patientId || '',
+          ip: 'server-scoped',
+          location: 'GlobalHealth server',
+          date: event.timestamp.slice(0, 10),
+          time: event.timestamp.slice(11, 16),
+          outcome: event.result === 'denied' || event.result === 'blocked' ? event.result : 'success',
+        })));
+      })
+      .catch(() => {
+        // The dashboard remains usable with honest empty states when an
+        // optional feed is unavailable; protected patient reads fail closed in
+        // ClinicalWorkspaceProvider.
+      });
+    return () => { cancelled = true; };
   }, [doctor.id]);
 
-  const setAppointmentStatus = useCallback((id: string, status: AppointmentStatus) => {
-    setAppointments((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+  const updateProfile = useCallback((_patch: Partial<DoctorProfile>) => {
+    // Profile changes require a server profile endpoint and are intentionally
+    // not applied to the authenticated client store.
   }, []);
 
-  const addReferral = useCallback((r: Omit<Referral, 'id'>) => {
-    setReferrals((prev) => [{ ...r, id: `ref-${Date.now()}` }, ...prev]);
+  const updateVerificationStatus = useCallback((_status: VerificationStatus) => {
+    // Verification is an organization/server decision, never a client write.
   }, []);
 
-  const requestAffiliation = useCallback((facilityId: string, department: string) => {
-    setAffiliations((prev) => [
-      ...prev,
-      { id: `aff-${Date.now()}`, facilityId, department, role: 'Consultant', status: 'requested', verificationStatus: 'pending' },
-    ]);
+  const addCredential: DoctorPortalState['addCredential'] = useCallback((_credential) => {
+    // Credential submission is handled only by the onboarding review boundary.
+  }, []);
+
+  const setAppointmentStatus = useCallback((_id: string, _status: AppointmentStatus) => {
+    // Scheduling status changes require the server scheduling API.
+  }, []);
+
+  const addReferral = useCallback((_referral: Omit<Referral, 'id'>) => {
+    // Referral creation requires a verified receiving-provider workflow.
+  }, []);
+
+  const requestAffiliation = useCallback((_facilityId: string, _department: string) => {
+    // Organization affiliation requests are not client-side writes.
   }, []);
 
   const markNotificationRead = useCallback((id: string) => {
+    if (getDoctorSessionToken()) {
+      void doctorApi.markNotificationRead(id).then(() => {
+        setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      }).catch(() => undefined);
+      return;
+    }
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
   }, []);
 
   const markAllNotificationsRead = useCallback(() => {
+    if (getDoctorSessionToken()) {
+      void doctorApi.markNotificationsRead().then(() => {
+        setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      }).catch(() => undefined);
+      return;
+    }
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
   }, []);
 
-  const toggleNotificationPref = useCallback((key: string) => {
-    setNotificationPrefs((prev) => ({ ...prev, [key]: !prev[key] }));
+  const toggleNotificationPref = useCallback((_key: string) => {
+    // Notification preferences require a server preferences endpoint.
   }, []);
 
-  const sendMessage = useCallback((threadId: string, text: string) => {
-    setMessages((prev) => prev.map((m) => (m.id === threadId ? { ...m, messages: [...m.messages, { fromMe: true, text, time: new Date().toTimeString().slice(0, 5) }] } : m)));
+  const sendMessage = useCallback((_threadId: string, _text: string) => {
+    // Messaging is unavailable without its server transport and audit boundary.
   }, []);
 
-  const markMessageRead = useCallback((id: string) => {
-    setMessages((prev) => prev.map((m) => (m.id === id ? { ...m, read: true } : m)));
+  const markMessageRead = useCallback((_id: string) => {
+    // Messaging read state is server-owned when messaging is connected.
   }, []);
 
-  const addDocument = useCallback((d: PortalDocument) => {
-    setDocuments((prev) => [d, ...prev]);
+  const addDocument = useCallback((_document: PortalDocument) => {
+    // Document storage is not connected.
   }, []);
 
-  const addAvailabilityRule = useCallback((r: AvailabilityRule) => {
-    setAvailability((prev) => [...prev, r]);
+  const addAvailabilityRule = useCallback((_rule: AvailabilityRule) => {
+    // Availability is server-owned.
   }, []);
 
-  const removeAvailabilityRule = useCallback((id: string) => {
-    setAvailability((prev) => prev.filter((r) => r.id !== id));
+  const removeAvailabilityRule = useCallback((_id: string) => {
+    // Availability is server-owned.
   }, []);
 
-  const addAvailabilityException = useCallback((e: AvailabilityException) => {
-    setExceptions((prev) => [...prev, e]);
+  const addAvailabilityException = useCallback((_exception: AvailabilityException) => {
+    // Availability exceptions are server-owned.
   }, []);
 
-  const removeAvailabilityException = useCallback((id: string) => {
-    setExceptions((prev) => prev.filter((e) => e.id !== id));
+  const removeAvailabilityException = useCallback((_id: string) => {
+    // Availability exceptions are server-owned.
   }, []);
 
-  const setMfaEnabled = useCallback((enabled: boolean) => {
-    setSecurity((prev) => ({ ...prev, mfaEnabled: enabled }));
+  const setMfaEnabled = useCallback((_enabled: boolean) => {
+    // MFA enrollment is not exposed by the connected server API.
   }, []);
 
-  const revokeSession = useCallback((id: string) => {
-    setSessions((prev) => prev.filter((s) => s.id !== id));
+  const revokeSession = useCallback((_id: string) => {
+    // Session revocation is not exposed by the connected server API.
   }, []);
 
-  const addDelegatedAccess = useCallback((d: Omit<DelegatedAccess, 'id' | 'createdAt' | 'status'>) => {
-    setDelegated((prev) => [...prev, { ...d, id: `del-${Date.now()}`, createdAt: new Date().toISOString().slice(0, 10), status: 'pending' }]);
+  const addDelegatedAccess = useCallback((_delegate: Omit<DelegatedAccess, 'id' | 'createdAt' | 'status'>) => {
+    // Delegated access is not exposed by the connected server API.
   }, []);
 
-  const revokeDelegatedAccess = useCallback((id: string) => {
-    setDelegated((prev) => prev.map((d) => (d.id === id ? { ...d, status: 'revoked' } : d)));
+  const revokeDelegatedAccess = useCallback((_id: string) => {
+    // Delegated access is not exposed by the connected server API.
   }, []);
 
-  const addTicket = useCallback((t: Omit<SupportTicket, 'id' | 'createdAt' | 'status'>) => {
-    setTickets((prev) => [{ ...t, id: `tkt-${Date.now()}`, createdAt: new Date().toISOString().slice(0, 10), status: 'open' }, ...prev]);
+  const addTicket = useCallback((_ticket: Omit<SupportTicket, 'id' | 'createdAt' | 'status'>) => {
+    // Support tickets require a server support workflow.
   }, []);
 
-  const addAuditEvent = useCallback((event: AuditEventInput) => {
-    const ev = createAuditEvent(event);
-    setAuditEvents((prev) => [
-      {
-        id: ev.id,
-        actor: ev.actorRole || ev.actorId,
-        action: ev.action,
-        resource: ev.resourceId || '',
-        ip: ev.ip || '—',
-        location: ev.location || 'GlobalHealth platform',
-        date: ev.timestamp.slice(0, 10),
-        time: ev.timestamp.slice(11, 16),
-        outcome: ev.outcome || 'success',
-      },
-      ...prev,
-    ]);
+  const addAuditEvent = useCallback((_event: AuditEventInput) => {
+    // Audit events are server-only and cannot be manufactured by the client.
   }, []);
 
   const value = useMemo<DoctorPortalState>(() => ({

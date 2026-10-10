@@ -5,7 +5,7 @@ import {
   ScrollText, BarChart3, CircleHelp, LifeBuoy, LogOut, Activity, ChevronDown, Search,
   Stethoscope, ClipboardList, FlaskConical, ScanLine, IndianRupee, Globe2, Shield, Lock
 } from 'lucide-react';
-import { useDoctorPortal, WorkspaceView, FACILITIES } from './doctorPortalData';
+import { useDoctorPortal, WorkspaceView } from './doctorPortalData';
 import { useClinicalWorkspace } from './doctorClinicalData';
 import { DoctorSidebar } from './layout/DoctorSidebar';
 import { PatientContextBar } from './layout/PatientContextBar';
@@ -71,15 +71,15 @@ const NAV: NavItem[] = [
 const MOBILE_NAV: WorkspaceView[] = ['dashboard', 'patients', 'appointments', 'messages', 'notifications'];
 
 export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobalHealth, onLogout }) => {
-  const { doctor, activeFacilityId, setActiveFacility, notifications, messages } = useDoctorPortal();
+  const { doctor, notifications, messages } = useDoctorPortal();
   const { selectedPatientId, selectPatient, patients } = useClinicalWorkspace();
   const [view, setView] = useState<WorkspaceView>('dashboard');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [facilityOpen, setFacilityOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
 
-  const activeFacility = FACILITIES.find((f) => f.id === activeFacilityId) || FACILITIES[0];
+  const organizationLabel = doctor.organization || 'Organization context unavailable';
+  const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Browser time zone';
   const unreadCount = notifications.filter((n) => !n.read).length;
   const unreadMessagesCount = messages.filter((m) => !m.read).length;
   const pendingLabsCount = patients.reduce(
@@ -138,15 +138,15 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
             <span className="text-[#8A97A8]">Doctor Portal / </span>{activeLabel}
           </h1>
 
-          {/* Time Zone & E2EE Security Status */}
+          {/* Only expose browser-derived context and the server session state; do not claim an unverified integration or transport badge. */}
           <div className="hidden xl:flex items-center gap-2 text-[11px] text-[#607086] ml-2">
             <span className="inline-flex items-center gap-1 rounded-lg bg-slate-50 border border-slate-200/80 px-2 py-1">
               <Clock3 className="h-3.5 w-3.5 text-slate-400" />
-              <span>IST (UTC+05:30)</span>
+              <span>{browserTimeZone}</span>
             </span>
-            <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 border border-emerald-200/80 px-2 py-1 text-emerald-800 font-medium">
-              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
-              <span>TLS 1.3 · MedAuth™ Active</span>
+            <span className="inline-flex items-center gap-1 rounded-lg bg-slate-50 border border-slate-200/80 px-2 py-1 text-slate-600">
+              <Lock className="h-3.5 w-3.5 text-slate-400" />
+              <span>Server session active</span>
             </span>
           </div>
 
@@ -189,7 +189,7 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
                 </span>
                 <span className="hidden sm:block">
                   <span className="block text-[11px] font-extrabold leading-tight text-[#162235]">{doctor.displayName}</span>
-                  <span className="block text-[9px] font-bold text-teal-600">✓ Verified Doctor</span>
+                  <span className="block text-[9px] font-bold text-teal-600">{doctor.verificationStatus === 'verified' ? 'Server-verified doctor' : 'Verification pending'}</span>
                 </span>
                 <ChevronDown className="h-3.5 w-3.5 text-[#8A97A8]" />
               </button>
@@ -199,7 +199,7 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
                     <p className="text-sm font-extrabold text-[#162235]">{doctor.displayName}</p>
                     <p className="text-[11px] text-[#607086]">{doctor.professionalTitle} · {doctor.specialty}</p>
                     <p className="mt-1 inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-700">
-                      <BadgeCheck className="h-3 w-3" /> GlobalHealth Verified Doctor
+                      <BadgeCheck className="h-3 w-3" /> {doctor.verificationStatus === 'verified' ? 'Server verification confirmed' : 'Verification pending'}
                     </p>
                   </div>
                   <div className="mt-1.5 space-y-0.5">
@@ -216,45 +216,13 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
           </div>
         </div>
 
-        {/* Facility switcher — active organization is always obvious */}
+        {/* Organization context comes from the authenticated server response. There is no client-side facility switcher. */}
         <div className="border-t border-[#E3E8EF] px-4 py-1.5 flex items-center justify-between">
-          <div className="relative inline-block">
-            <button
-              type="button"
-              onClick={() => setFacilityOpen(!facilityOpen)}
-              className="inline-flex cursor-pointer items-center gap-2 rounded-lg bg-medical-50 px-2.5 py-1 text-xs font-bold text-medical-800 transition hover:bg-medical-100"
-              aria-expanded={facilityOpen}
-            >
-              <Building2 className="h-3.5 w-3.5 text-medical-600" />
-              {activeFacility.name}
-              <ChevronDown className="h-3 w-3" />
-            </button>
-            {facilityOpen && (
-              <div className="absolute left-0 top-full z-40 mt-1 w-72 rounded-2xl border border-slate-200 bg-white p-2 shadow-lift">
-                <p className="px-2 pb-1 text-[10px] font-bold uppercase tracking-wider text-slate-400">Current practice location</p>
-                {FACILITIES.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => { setActiveFacility(f.id); setFacilityOpen(false); }}
-                    className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl px-2 py-2 text-left text-xs font-semibold transition ${
-                      f.id === activeFacilityId ? 'bg-medical-50 text-medical-800' : 'text-slate-600 hover:bg-slate-50'
-                    }`}
-                  >
-                    <span>
-                      <span className="block">{f.name}</span>
-                      <span className="block text-[10px] font-normal text-slate-400">{f.address}</span>
-                    </span>
-                    {f.id === activeFacilityId && <BadgeCheck className="h-4 w-4 text-medical-600" />}
-                  </button>
-                ))}
-                <p className="mt-1 border-t border-slate-100 px-2 pt-1.5 text-[10px] text-slate-400">Data shown is scoped to the selected organization.</p>
-              </div>
-            )}
-          </div>
-
+          <span className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">
+            <Building2 className="h-3.5 w-3.5 text-slate-400" /> Organization: {organizationLabel}
+          </span>
           <span className="text-[11px] text-slate-500 hidden sm:inline">
-            Active timezone: <span className="font-semibold text-slate-700">Asia/Kolkata (UTC+05:30)</span>
+            Browser time zone: <span className="font-semibold text-slate-700">{browserTimeZone}</span>
           </span>
         </div>
       </header>
@@ -271,7 +239,9 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
             bloodGroup: activePatient.bloodGroup,
             consentStatus: activePatient.consentStatus,
             consentedScopes: activePatient.consentedScopes,
-            facilityName: activeFacility.name
+            accessExpiresAt: activePatient.accessExpiresAt || undefined,
+            isEmergencyAccess: activePatient.accessStatus === 'emergency',
+            facilityName: organizationLabel
           }}
           onRequestScopeExpansion={() => go('patients')}
           onViewAccessAudit={() => go('audit')}
@@ -303,7 +273,7 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
               {view === 'dashboard' && <DoctorDashboard onNavigate={go} />}
               {view === 'patients' && <PermissionGate permission="doctor.patient.read"><DoctorPatients onNavigate={go} /></PermissionGate>}
               {view === 'consultations' && <PermissionGate permission="doctor.consultation.create"><DoctorConsultations onNavigate={go} /></PermissionGate>}
-              {view === 'prescriptions' && <PermissionGate permission="doctor.prescription.create"><DoctorPrescriptions onNavigate={go} /></PermissionGate>}
+              {view === 'prescriptions' && <PermissionGate permission="doctor.prescription.create"><DoctorPrescriptions /></PermissionGate>}
               {view === 'labs' && <PermissionGate permission="doctor.lab.order"><DoctorLabs /></PermissionGate>}
               {view === 'imaging' && <PermissionGate permission="doctor.imaging.order"><DoctorImaging /></PermissionGate>}
               {view === 'billing' && <PermissionGate permission="doctor.billing.read"><DoctorBilling /></PermissionGate>}
@@ -354,15 +324,14 @@ export const DoctorWorkspace: React.FC<DoctorWorkspaceProps> = ({ onBackToGlobal
 
 /** Compact header strip: greeting + verification/profile state. */
 const DoctorProfileBanner: React.FC = () => {
-  const { doctor, activeFacilityId } = useDoctorPortal();
-  const facility = FACILITIES.find((f) => f.id === activeFacilityId);
+  const { doctor } = useDoctorPortal();
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
   return (
     <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
       <div>
         <h2 className="text-xl font-extrabold tracking-tight text-slate-900 sm:text-2xl">{greeting}, {doctor.displayName}</h2>
-        <p className="text-xs text-slate-500">{doctor.professionalTitle} · {doctor.specialty} · {facility?.name}</p>
+        <p className="text-xs text-slate-500">{doctor.professionalTitle} · {doctor.specialty}{doctor.organization ? ` · ${doctor.organization}` : ''}</p>
       </div>
       <div className="flex items-center gap-2">
         <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-bold ${
@@ -383,13 +352,12 @@ const DoctorProfileBanner: React.FC = () => {
 
 /** Authorized-resource search (never returns unauthorized records). */
 const PortalSearch: React.FC<{ onNavigate: (v: WorkspaceView) => void; onClose: () => void }> = ({ onNavigate, onClose }) => {
-  const { appointments, referrals, documents, activeFacilityId } = useDoctorPortal();
+  const { appointments, referrals, documents } = useDoctorPortal();
   const [q, setQ] = useState('');
   const query = q.trim().toLowerCase();
-  const scopedAppointments = appointments.filter((a) => a.facilityId === activeFacilityId);
   const results = query
     ? {
-        appointments: scopedAppointments.filter((a) => a.patientIdentifier.toLowerCase().includes(query) || a.date.includes(query)).slice(0, 4),
+        appointments: appointments.filter((a) => a.patientIdentifier.toLowerCase().includes(query) || a.date.includes(query)).slice(0, 4),
         referrals: referrals.filter((r) => r.patientIdentifier.toLowerCase().includes(query) || r.specialty.toLowerCase().includes(query)).slice(0, 3),
         documents: documents.filter((d) => d.name.toLowerCase().includes(query)).slice(0, 3),
       }

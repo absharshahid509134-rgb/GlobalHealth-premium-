@@ -10,7 +10,9 @@ export type PortalAuthPhase = 'login' | 'signup' | 'forgot' | 'reset' | 'verify'
 interface DoctorAuthProps {
   initialPhase: PortalAuthPhase;
   onLoginSuccess: (doctor: DoctorProfile) => void;
-  /** Called after email/phone verification completes (→ guided onboarding). */
+  /** Start the server-reviewed onboarding flow without activating an account. */
+  onStartOnboarding?: (draft: { fullName: string; email: string; phone: string; password: string }) => void;
+  /** Retained for deep-link compatibility; verification is never decided in the browser. */
   onVerified: () => void;
   onBackToGlobalHealth: () => void;
 }
@@ -26,12 +28,11 @@ const fieldShell = (invalid: boolean) =>
 const labelCls = 'mb-1.5 block text-xs font-bold uppercase tracking-wider text-slate-700';
 const errSlot = 'mt-1 min-h-[16px] text-[11px] font-semibold text-rose-600';
 
-export const DoctorAuth: React.FC<DoctorAuthProps> = ({ initialPhase, onLoginSuccess, onVerified, onBackToGlobalHealth }) => {
+export const DoctorAuth: React.FC<DoctorAuthProps> = ({ initialPhase, onLoginSuccess, onStartOnboarding, onVerified, onBackToGlobalHealth }) => {
   const [phase, setPhase] = useState<PortalAuthPhase>(initialPhase);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPw, setShowPw] = useState(false);
-  const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [info, setInfo] = useState('');
@@ -49,6 +50,7 @@ export const DoctorAuth: React.FC<DoctorAuthProps> = ({ initialPhase, onLoginSuc
   const [attempts, setAttempts] = useState(5);
 
   // Reset fields
+  const [resetToken, setResetToken] = useState('');
   const [newPw, setNewPw] = useState('');
   const [confirmPw, setConfirmPw] = useState('');
   const [resetDone, setResetDone] = useState(false);
@@ -98,39 +100,38 @@ export const DoctorAuth: React.FC<DoctorAuthProps> = ({ initialPhase, onLoginSuc
     if (!phone.trim()) fe.phone = 'Enter a phone number.';
     setFieldErr(fe);
     if (Object.keys(fe).length) return;
-    setBusy(true);
-    const res = await doctorPortalApi.signup();
     setBusy(false);
-    if (res.success) go('verify');
+    // Creating a browser-side identity would be an authorization bypass. The
+    // remaining professional fields and document metadata are collected in the
+    // reviewed onboarding flow and submitted to the server together.
+    onStartOnboarding?.({
+      fullName: fullName.trim(),
+      email: identifier.trim().toLowerCase(),
+      phone: phone.trim(),
+      password,
+    });
   };
 
   const handleVerify = async () => {
-    const code = digits.join('');
-    setError('');
-    if (code.length !== 6) { setError('Enter the full 6-digit code.'); return; }
-    setBusy(true);
-    const res = await doctorPortalApi.verify(code);
-    setBusy(false);
-    if (res.success) { onVerified(); }
-    else {
-      const left = attempts - 1;
-      setAttempts(left);
-      setError(left <= 0 ? 'Too many incorrect attempts. Request a new code.' : `${res.error} ${left} attempt${left === 1 ? '' : 's'} remaining.`);
-    }
+    // There is deliberately no universal/demo verification code. A real
+    // activation is issued by the server after organization review.
+    setError('Email verification and professional activation are completed by the verified organization. Continue with the review request instead.');
   };
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     const fe: Record<string, string> = {};
+    if (!resetToken.trim()) fe.resetToken = 'Paste the single-use reset token from your secure reset message.';
     if (newPw.length < 8) fe.newPw = 'At least 8 characters.';
     if (newPw !== confirmPw) fe.confirmPw = 'Passwords do not match.';
     setFieldErr(fe);
     if (Object.keys(fe).length) return;
     setBusy(true);
-    const res = await doctorPortalApi.reset();
+    const res = await doctorPortalApi.completePasswordReset(resetToken, newPw);
     setBusy(false);
     if (res.success) setResetDone(true);
+    else setError(res.error || 'The reset token could not be verified.');
   };
 
   const maskEmail = (v: string) => {
@@ -232,19 +233,15 @@ export const DoctorAuth: React.FC<DoctorAuthProps> = ({ initialPhase, onLoginSuc
                     <p className={errSlot}>{fieldErr.password || ''}</p>
                   </div>
 
-                  <label className="flex cursor-pointer select-none items-center gap-2">
-                    <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.target.checked)}
-                      className="h-4 w-4 cursor-pointer rounded-md border-slate-300 accent-medical-600" />
-                    <span className="text-xs font-medium text-slate-600">Remember this device</span>
-                  </label>
+                  <p className="text-[11px] leading-relaxed text-slate-500">This tab keeps only an opaque session token. The server controls expiry and logout; no password or clinical data is stored in browser storage.</p>
 
                   <button type="submit" disabled={busy}
                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-medical-600 px-5 py-3 text-sm font-bold text-white shadow-md shadow-medical-600/20 transition hover:bg-medical-700 hover:shadow-lg active:bg-medical-800 disabled:cursor-not-allowed disabled:opacity-60">
                     {busy ? <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" /> : <><span>Log In</span><ArrowRight className="h-4 w-4" /></>}
                   </button>
 
-                  <div className="rounded-xl border border-medical-100 bg-medical-50/60 p-3 text-[11px] leading-relaxed text-medical-800">
-                    <span className="font-bold">Demo access:</span> <code className="font-mono">priya.nair@example.com</code> with any password (8+ characters). This is a development aid only.
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
+                    Access is granted only after the GlobalHealth server validates your verified professional account. There is no browser-only or universal demo login.
                   </div>
 
                   <p className="border-t border-slate-100 pt-4 text-center text-xs text-slate-600">
@@ -335,7 +332,25 @@ export const DoctorAuth: React.FC<DoctorAuthProps> = ({ initialPhase, onLoginSuc
 
               {/* ---------------- FORGOT ---------------- */}
               {phase === 'forgot' && (
-                <form onSubmit={async (e) => { e.preventDefault(); if (!identifier.trim()) { setFieldErr({ identifier: 'Enter your professional email.' }); return; } setBusy(true); await doctorPortalApi.forgot(); setBusy(false); go('login'); setInfo('If an account matches, recovery instructions have been sent to the registered contact method.'); }}
+                <form onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!identifier.trim()) { setFieldErr({ identifier: 'Enter your professional email.' }); return; }
+                  setBusy(true);
+                  const result = await doctorPortalApi.requestPasswordReset(identifier);
+                  setBusy(false);
+                  if (!result.success) { setError(result.message); return; }
+                  if (result.demoResetToken) {
+                    // The development server exposes a reset token only in its
+                    // explicitly non-production response. Production delivery
+                    // remains out-of-band and never puts a token in the bundle.
+                    setResetToken(result.demoResetToken);
+                    go('reset');
+                    setInfo('Development delivery: a single-use reset token was placed in the reset form.');
+                  } else {
+                    go('login');
+                    setInfo(result.message || 'If an account matches, recovery instructions have been sent to the registered contact method.');
+                  }
+                }}
                   noValidate className="space-y-3.5">
                   <h2 className="text-lg font-extrabold text-slate-900">Recover Your Account</h2>
                   <p className="-mt-2 text-xs text-slate-500">We’ll help you securely regain access to your Doctor Portal account.</p>
@@ -364,7 +379,17 @@ export const DoctorAuth: React.FC<DoctorAuthProps> = ({ initialPhase, onLoginSuc
               {phase === 'reset' && !resetDone && (
                 <form onSubmit={handleReset} noValidate className="space-y-3.5">
                   <h2 className="text-lg font-extrabold text-slate-900">Create a New Password</h2>
-                  <p className="-mt-2 text-xs text-slate-500">Choose a strong password you don’t use elsewhere.</p>
+                  <p className="-mt-2 text-xs text-slate-500">Use the single-use token from your secure reset message. Tokens expire and cannot be reused.</p>
+                  <div>
+                    <label htmlFor="dp-reset-token" className={labelCls}>Reset token</label>
+                    <div className={fieldShell(Boolean(fieldErr.resetToken))}>
+                      <KeyRound className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                      <input id="dp-reset-token" type="text" autoComplete="one-time-code" value={resetToken}
+                        onChange={(e) => { setResetToken(e.target.value); setFieldErr((p) => ({ ...p, resetToken: '' })); }}
+                        placeholder="Paste your secure reset token" className="w-full rounded-xl py-2.5 pl-10 pr-4 text-sm font-mono focus:outline-hidden" />
+                    </div>
+                    <p className={errSlot}>{fieldErr.resetToken || ''}</p>
+                  </div>
                   <div>
                     <label htmlFor="dp-npw" className={labelCls}>New password</label>
                     <div className={fieldShell(Boolean(fieldErr.newPw))}>
