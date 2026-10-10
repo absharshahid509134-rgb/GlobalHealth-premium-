@@ -4,6 +4,7 @@ import { useLocalization } from '../../context/LocalizationContext';
 import { loginUser, verifyTwoFactorLogin } from '../../services/authService';
 import { PublicUserAccount } from '../../types/auth';
 import { AvatarExpression } from './DoctorAvatar';
+import { DemoAccountPicker } from './DemoAccountPicker';
 
 interface LoginFormProps {
   onSuccess: (user: PublicUserAccount, token?: string) => void;
@@ -323,6 +324,18 @@ export const LoginForm: React.FC<LoginFormProps> = ({
             {fieldErrors.password || ''}
           </p>
         </div>
+
+        <DemoAccountPicker
+          role="user"
+          disabled={isLoading}
+          onSelect={(account) => {
+            setIdentifier(account.identifier);
+            setPassword(account.password);
+            setFieldErrors({});
+            setErrorMessage('');
+            setSuccessMessage('');
+          }}
+        />
 
         {/* Remember Device Checkbox */}
         <div className="flex items-center justify-between pt-0.5">

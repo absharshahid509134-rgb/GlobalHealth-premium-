@@ -3,25 +3,34 @@
 import assert from 'node:assert/strict';
 const base = process.env.TEST_BASE_URL || 'http://127.0.0.1:3000';
 const roles = ['user', 'doctor', 'hospital', 'pharmacy', 'news'];
-const accounts = {
-  user: ['sarah.jenkins@example.com', 'Password123!'],
-  doctor: ['doc-1', 'Doctor123!'],
-  hospital: ['apex_admin', 'Password@123'],
-  pharmacy: ['dr.ramanathan@apexhealth.org', 'Pharmacy@123'],
-  news: ['admin@globalhealth.org', 'Password123!'],
-};
 async function request(path, token, body) {
   const response = await fetch(base + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
   return { status: response.status, body: await response.json(), cache: response.headers.get('cache-control') };
 }
-async function login(role, credentials = accounts[role]) {
+const demoCatalog = await request('/api/auth/demo-accounts');
+assert.equal(demoCatalog.status, 200, 'development server should expose its demo account catalog');
+assert.equal(demoCatalog.body.success, true);
+assert.match(demoCatalog.cache, /no-store/);
+assert.deepEqual(Object.keys(demoCatalog.body.accounts).sort(), [...roles].sort());
+for (const role of roles) {
+  assert.ok(Array.isArray(demoCatalog.body.accounts[role]) && demoCatalog.body.accounts[role].length > 0, `${role} demo account list`);
+  assert.ok(demoCatalog.body.accounts[role].every((account) => account.identifier && account.password && account.label), `${role} demo credentials`);
+}
+const accounts = Object.fromEntries(roles.map((role) => {
+  const firstDemo = demoCatalog.body.accounts[role][0];
+  return [role, [firstDemo.identifier, firstDemo.password]];
+}));
+async function login(role, credentials = accounts[role], exerciseWrongMfa = true) {
   let result = await request(`/api/auth/portal/${role}/login`, null, { identifier: credentials[0], password: credentials[1], role: 'SUPER_ADMIN' });
   assert.equal(result.status, 200, JSON.stringify(result));
   if (result.body.stage === 'mfa') {
     assert.ok(result.body.challengeId);
     assert.equal(result.body.token, undefined, 'MFA must not issue an early session');
-    const wrong = await request('/api/auth/portal/news/mfa', null, { challengeId: result.body.challengeId, code: 'not-a-code' });
-    assert.equal(wrong.status, 401);
+    assert.ok(result.body.demoDelivery?.code, 'development News demo sign-in should expose its simulated code');
+    if (exerciseWrongMfa) {
+      const wrong = await request('/api/auth/portal/news/mfa', null, { challengeId: result.body.challengeId, code: 'not-a-code' });
+      assert.equal(wrong.status, 401);
+    }
     result = await request('/api/auth/portal/news/mfa', null, { challengeId: result.body.challengeId, code: result.body.demoDelivery.code });
   }
   const token = result.body.token || result.body.sessionId;
@@ -29,6 +38,7 @@ async function login(role, credentials = accounts[role]) {
   return token;
 }
 const sessions = {};
+const additionalDemoSessions = [];
 try {
   for (const role of roles) {
     assert.equal((await request(`/api/portals/${role}/workspace`)).status, 401);
@@ -38,6 +48,14 @@ try {
     assert.equal(identity.body.user.portalRole, role);
     assert.match(identity.cache, /no-store/);
     assert.ok(!JSON.stringify(identity.body).includes('passwordHash'));
+    // Every seeded credential shown in the picker must be a working account,
+    // not just a sample label. News accounts also complete simulated MFA.
+    for (const demo of demoCatalog.body.accounts[role].slice(1)) {
+      const demoToken = await login(role, [demo.identifier, demo.password], false);
+      additionalDemoSessions.push(demoToken);
+      const demoIdentity = await request('/api/auth/me', demoToken);
+      assert.equal(demoIdentity.body.portalRole, role, `${role} demo account ${demo.identifier}`);
+    }
     // Every source role is tested against all five workspace destinations.
     for (const destination of roles) {
       const result = await request(`/api/portals/${destination}/workspace?accountId=another-account`, sessions[role]);
@@ -78,9 +96,9 @@ try {
   assert.equal((await request('/api/auth/portal/user/constructor', null, {})).status, 400);
   const invalid = await request('/api/auth/me', 'invented-token');
   assert.equal(invalid.status, 401);
-  console.log('PASS: five roles, 25 workspace checks, 25 domain checks, MFA, identity restoration, account isolation, provisioning, invalid tokens, no-store.');
+  console.log('PASS: all seeded demo accounts across five roles, 25 workspace checks, 25 domain checks, MFA, identity restoration, account isolation, provisioning, invalid tokens, no-store.');
 } finally {
-  for (const token of Object.values(sessions)) {
+  for (const token of [...Object.values(sessions), ...additionalDemoSessions]) {
     assert.equal((await request('/api/auth/logout', token, {})).status, 200);
     assert.equal((await request('/api/auth/me', token)).status, 401);
   }

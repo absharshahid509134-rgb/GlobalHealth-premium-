@@ -61,6 +61,17 @@ clinical editing, hospital operational modules, inventory editing, and CMS autho
 must be migrated to account-scoped server APIs before being re-enabled. This is a
 security boundary, not a claim that all prototype functionality is migrated.
 
+## Development demo accounts
+
+- The centralized login page offers a role-specific picker for all seeded demo
+  accounts (User, Doctor, Hospital, Pharmacy, and News Management) in
+  development mode. The server catalog is available at
+  `GET /api/auth/demo-accounts`; it is `404` in production and test modes, is
+  not bundled into the frontend, and uses `Cache-Control: no-store, private`.
+- Demo profiles and data are synthetic and for local testing only. News demo
+  administrators still complete MFA; the simulated verification code is shown
+  by the central login form only when the development server returns it.
+
 ## Registration and deployment requirements
 
 - User signup uses the existing contact-verification flow.

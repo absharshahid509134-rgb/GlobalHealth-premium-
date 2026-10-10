@@ -3,12 +3,9 @@ import { ProfessionalAuthForm } from './auth/ProfessionalAuthForm';
 import React, { useState, useEffect } from 'react';
 import {
   ShieldCheck,
-  ArrowLeft,
-  HelpCircle,
   Calendar,
   Bookmark,
-  Shield,
-  Activity
+  Shield
 } from 'lucide-react';
 import { AuthSubView, PublicUserAccount } from '../types/auth';
 import { LoginForm } from './auth/LoginForm';
@@ -101,7 +98,7 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   // If user is already authenticated and opens security
   if (currentUser && (!currentUser.portalRole || currentUser.portalRole === 'user') && activeSubView === 'security') {
     return (
-      <div className="min-h-screen bg-slate-50 py-6">
+      <div className="min-h-[100dvh] bg-slate-50 py-6">
         <AccountSecurityView
           currentUser={currentUser}
           onUpdateUser={onUpdateUser}
@@ -118,59 +115,17 @@ export const AuthPage: React.FC<AuthPageProps> = ({
   }
 
   // Do not flash credentials while the app routes an existing session.
-  if (currentUser) return <div role="status" className="p-16 text-center">Opening your authorized portal…</div>;
+  if (currentUser) return <div role="status" className="grid min-h-[100dvh] place-items-center p-8 text-center">Opening your authorized portal…</div>;
 
   const switchView = (view: AuthSubView) => setActiveSubView(view);
 
   return (
-    <div className="relative flex min-h-screen flex-col justify-between overflow-hidden bg-gradient-to-b from-medical-50/70 via-white to-medical-50/50">
+    <div className="relative flex min-h-[100dvh] w-full flex-col justify-between overflow-hidden bg-gradient-to-b from-medical-50/70 via-white to-medical-50/50">
       {/* Subtle blue atmosphere — soft radial glows, extremely light */}
       <div aria-hidden="true" className="pointer-events-none absolute inset-0">
         <div className="absolute -top-32 left-1/2 h-72 w-72 -translate-x-1/2 rounded-full bg-medical-200/40 blur-3xl" />
         <div className="absolute bottom-0 right-0 h-80 w-80 translate-x-1/3 translate-y-1/3 rounded-full bg-medical-100/60 blur-3xl" />
       </div>
-
-      {/* 1. Header Navigation Bar (Focused for Authentication) */}
-      <header className="relative z-30 w-full border-b border-medical-100/80 bg-white/85 backdrop-blur-md px-4 lg:px-8 py-3.5">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <button
-            onClick={onReturnToHome}
-            className="group flex cursor-pointer items-center gap-2.5 text-left focus-visible:outline-none"
-          >
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-medical-500 to-medical-800 text-white shadow-md shadow-medical-600/25 transition group-hover:scale-105">
-              <Activity className="h-5 w-5" />
-            </div>
-            <div>
-              <span className="block text-lg font-extrabold leading-tight tracking-tight text-slate-900">
-                GlobalHealth
-              </span>
-              <span className="block text-[10px] font-semibold uppercase tracking-wide text-medical-700">
-                Secure Patient Portal
-              </span>
-            </div>
-          </button>
-
-          <div className="flex items-center gap-2 sm:gap-3">
-            <button
-              type="button"
-              onClick={() => setShowHelpModal(true)}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl border border-medical-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-medical-300 hover:text-medical-800"
-            >
-              <HelpCircle className="h-3.5 w-3.5 text-medical-600" />
-              <span className="hidden sm:inline">Security & Help</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={onReturnToHome}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-xl bg-medical-50 px-3.5 py-1.5 text-xs font-bold text-medical-800 transition hover:bg-medical-100"
-            >
-              <ArrowLeft className="h-3.5 w-3.5" />
-              <span>Back to GlobalHealth</span>
-            </button>
-          </div>
-        </div>
-      </header>
 
       {/* 2. Main Authentication Surface */}
       <main className="relative z-10 mx-auto flex w-full max-w-7xl flex-1 items-center justify-center px-4 py-8 sm:px-6 lg:px-8 lg:py-12">
@@ -419,7 +374,8 @@ export const AuthPage: React.FC<AuthPageProps> = ({
       <footer className="relative z-10 w-full border-t border-medical-100/80 bg-white/80 px-4 py-4 text-center text-xs text-slate-500 backdrop-blur-sm">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
           <p>© {new Date().getFullYear()} GlobalHealth Portal. All rights reserved. Role-based account access.</p>
-          <div className="flex items-center gap-4 font-semibold text-slate-600">
+          <div className="flex flex-wrap items-center gap-4 font-semibold text-slate-600">
+            <button type="button" onClick={onReturnToHome} className="cursor-pointer transition hover:text-medical-700">Back to GlobalHealth</button>
             <button type="button" onClick={() => onOpenLegalPage?.('privacy-policy')} className="cursor-pointer transition hover:text-medical-700">Privacy Policy</button>
             <button type="button" onClick={() => onOpenLegalPage?.('terms')} className="cursor-pointer transition hover:text-medical-700">Terms &amp; Conditions</button>
             <button

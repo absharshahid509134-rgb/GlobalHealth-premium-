@@ -86,8 +86,8 @@ export const ProtectedScreen: React.FC<ProtectedScreenProps> = ({
 };
 
 // Neutral loading state — never flashes private content while auth is checked.
-export const AuthLoading: React.FC<{ label?: string }> = ({ label = 'Checking your secure session…' }) => (
-  <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 px-4 text-center" role="status" aria-live="polite">
+export const AuthLoading: React.FC<{ label?: string; fullScreen?: boolean }> = ({ label = 'Checking your secure session…', fullScreen = false }) => (
+  <div className={`flex ${fullScreen ? 'min-h-[100dvh]' : 'min-h-[60vh]'} flex-col items-center justify-center gap-4 px-4 text-center`} role="status" aria-live="polite">
     <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-50 ring-1 ring-emerald-100">
       <ShieldCheck className="h-7 w-7 animate-pulse text-emerald-600" />
     </div>
