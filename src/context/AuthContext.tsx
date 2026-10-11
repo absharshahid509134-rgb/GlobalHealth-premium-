@@ -1,7 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import type { PublicUserAccount } from '../types/auth';
 import { UserAccount } from '../types';
-import { apiFetch, clearAllGlobalSessions, getStoredToken, storeSession } from '../services/authClient';
+import { apiFetch, AuthError, clearAllGlobalSessions, getStoredToken, storeSession } from '../services/authClient';
+
+/** Attempts made to restore a stored session before reporting a transient failure. */
+const RESTORE_ATTEMPTS = 3;
 
 // Where the user was trying to go / do when they were asked to sign in.
 export interface AuthIntent {
@@ -55,6 +58,10 @@ interface AuthContextValue {
   isAuthenticated: boolean;
   // True until the initial session check against the server completes.
   initializing: boolean;
+  /** Set when the stored session could not be verified because the server or
+   * network was unreachable. The token is kept; private data is never shown. */
+  restoreFailed: boolean;
+  retryRestore: () => void;
   // True when the active session has expired server-side.
   sessionExpired: boolean;
   // The global auth gate modal state.
@@ -107,6 +114,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [publicUser, setPublicUser] = useState<PublicUserAccount | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [initializing, setInitializing] = useState(true);
+  const [restoreFailed, setRestoreFailed] = useState(false);
+  const [restoreAttempt, setRestoreAttempt] = useState(0);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [gateOpen, setGateOpen] = useState(false);
   const [gateMode, setGateMode] = useState<'login' | 'signup'>('login');
@@ -124,24 +133,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setInitializing(false);
         return;
       }
-      try {
-        const res = await apiFetch<{ success: boolean; user: any }>('/api/auth/me');
-        if (!cancelled && res?.user) {
-          setUser(toUserAccount(res.user));
-          setPublicUser(res.user as PublicUserAccount);
-          setSessionId(token);
+      setRestoreFailed(false);
+      for (let attempt = 1; attempt <= RESTORE_ATTEMPTS; attempt++) {
+        try {
+          const res = await apiFetch<{ success: boolean; user: any }>('/api/auth/me');
+          if (!cancelled && res?.user) {
+            setUser(toUserAccount(res.user));
+            setPublicUser(res.user as PublicUserAccount);
+            setSessionId(token);
+          }
+          break;
+        } catch (error) {
+          // Only a server-confirmed rejection ends the session. Network and
+          // server errors are transient: keep the token and retry.
+          const rejected = error instanceof AuthError && (error.status === 401 || error.status === 403);
+          if (rejected) {
+            clearAllGlobalSessions();
+            if (!cancelled) setUser(null);
+            break;
+          }
+          if (attempt < RESTORE_ATTEMPTS) {
+            await new Promise((resolve) => setTimeout(resolve, 600 * attempt));
+            if (cancelled) break;
+            continue;
+          }
+          if (!cancelled) {
+            setUser(null);
+            setRestoreFailed(true);
+          }
         }
-      } catch {
-        // Token invalid or expired — clear this and every dependent session.
-        clearAllGlobalSessions();
-        if (!cancelled) setUser(null);
-      } finally {
-        if (!cancelled) setInitializing(false);
       }
+      if (!cancelled) setInitializing(false);
     })();
     return () => {
       cancelled = true;
     };
+  }, [restoreAttempt]);
+
+  const retryRestore = useCallback(() => {
+    setInitializing(true);
+    setRestoreAttempt((attempt) => attempt + 1);
   }, []);
 
   const requireAuth = useCallback((intent?: AuthIntent, mode: 'login' | 'signup' = 'login') => {
@@ -266,6 +297,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     permissions: user && (!publicUser?.portalRole || publicUser.portalRole === 'user') ? ([...USER_PORTAL_PERMISSIONS] as UserPortalPermission[]) : [],
     isAuthenticated: !!user && !!sessionId,
     initializing,
+    restoreFailed,
+    retryRestore,
     sessionExpired,
     gateOpen,
     gateMode,

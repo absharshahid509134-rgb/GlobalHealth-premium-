@@ -13,6 +13,7 @@ import { TermsPage } from './components/legal/TermsPage';
 import { PrivacyPolicyPage } from './components/legal/PrivacyPolicyPage';
 import { LanguageModal } from './components/LanguageModal';
 import { ProtectedScreen, AuthLoading, SessionExpiredModal } from './components/auth/ProtectedScreen';
+import { SessionRestoreRetry } from './components/auth/SessionRestoreRetry';
 import { WorkspaceOverlay } from './components/WorkspaceOverlay';
 import { useLocalization } from './context/LocalizationContext';
 import { useAuth, toUserAccount } from './context/AuthContext';
@@ -237,7 +238,7 @@ const OVERLAY_META: Partial<Record<NavigationTab, { title: string; subtitle: str
 
 export default function App() {
   const { currentLanguage, direction } = useLocalization();
-  const { user: currentUser, publicUser, setPublicUser, initializing, requireAuth, gateOpen, gateMode, logout, authenticate, closeGate } = useAuth();
+  const { user: currentUser, publicUser, setPublicUser, initializing, restoreFailed, retryRestore, requireAuth, gateOpen, gateMode, logout, authenticate, closeGate } = useAuth();
   const [authRole, setAuthRole] = useState<PlatformRole>('user');
   const activeRole: PlatformRole = publicUser?.portalRole || 'user';
   const [currentTab, setCurrentTabState] = useState<NavigationTab>('auth');
@@ -349,7 +350,9 @@ export default function App() {
       if (!entryResolvedRef.current) {
         entryResolvedRef.current = true;
         setEntryReady(true);
-        if (!currentUser) {
+        // A stored session that could not be verified (outage) keeps its place:
+        // the protected route shows the retry screen instead of the sign-in page.
+        if (!currentUser && !restoreFailed) {
           const entry = guestAuthEntry(window.location.hash);
           setAuthRole(entry.role);
           setAuthInitialView(entry.mode);
@@ -490,7 +493,9 @@ export default function App() {
 
   // Authentication entry points and legacy portal URLs all resolve here.
   useEffect(() => {
-    if (initializing || !entryReady) return;
+    // While a stored session could not be verified (network/server outage), do not
+    // redirect to sign-in: the token is kept and the retry screen is shown instead.
+    if (initializing || !entryReady || restoreFailed) return;
     const destination = overlayTab || currentTab;
     const requestedRole = roleForDestination(destination);
     if (!currentUser && (gateOpen || (requestedRole && destination !== 'hospital-portal' && destination !== 'doctor-portal'))) {
@@ -508,7 +513,7 @@ export default function App() {
       intendedTabRef.current = null;
       setCurrentTab(ROLE_DESTINATIONS[activeRole] as NavigationTab);
     }
-  }, [currentUser, initializing, entryReady, gateOpen, gateMode, overlayTab, currentTab, activeRole, authInitialView]);
+  }, [currentUser, initializing, entryReady, restoreFailed, gateOpen, gateMode, overlayTab, currentTab, activeRole, authInitialView]);
 
   // All authentication routes through the secure, server-validated gate.
   // There is no client-side credential checking and no plaintext secret
@@ -635,6 +640,7 @@ export default function App() {
       );
     }
 
+    if (restoreFailed) return <SessionRestoreRetry onRetry={retryRestore} />;
     if (initializing) return <AuthLoading />;
     const requiredRole = roleForDestination(overlayTab);
     if (requiredRole && !currentUser) return <AuthLoading />;

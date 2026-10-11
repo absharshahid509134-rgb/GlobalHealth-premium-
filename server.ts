@@ -16,6 +16,7 @@ import { retrieveVerifiedKnowledge } from './src/core/ai/aiKnowledge';
 import { loadRuntimeConfig } from './src/server/config';
 import { isLegacyDemoSessionToken, isLegacyDemoUserId } from './src/core/legacyDemoAccounts';
 import { removeDemoUserAccounts, removeDemoDomainAccounts } from './src/server/accountMigration';
+import { applyDemoAccountSeed, demoConfigView, isDemoSeedRecord, DEMO_PHARMACY_PARTNER_ID } from './src/server/demoAccounts';
 import { createLogger } from './src/server/logger';
 import { apiError } from './src/server/errors';
 import {
@@ -32,7 +33,10 @@ async function startServer() {
   if (config.trustProxy !== false) app.set('trust proxy', config.trustProxy);
   const logger = createLogger('server');
   const appDir = process.cwd();
-  const RUNTIME_DIR = path.join(appDir, config.runtimeDir, 'runtime');
+  // GH_RUNTIME_DIR may be absolute (e.g. /var/lib/globalhealth) or relative to the app root.
+  const RUNTIME_DIR = path.isAbsolute(config.runtimeDir)
+    ? path.join(config.runtimeDir, 'runtime')
+    : path.join(appDir, config.runtimeDir, 'runtime');
   const readJsonFile = <T>(file: string, fallback: T): T => {
     try {
       if (!fs.existsSync(file)) return fallback;
@@ -1560,7 +1564,7 @@ async function startServer() {
   // ======================================================================
 
   // Sliding session lifetime: 7 days of inactivity.
-  const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+  const SESSION_TTL_MS = config.sessionPolicy.userIdleMs;
 
   // Per-user private health/application data. Keyed by userId.
   // This simulates an isolated, per-account data store (one record per user;
@@ -1630,7 +1634,7 @@ async function startServer() {
     });
   };
   {
-    const migration = removeDemoUserAccounts(readJsonFile<Record<string, any>>(RUNTIME_ACCOUNT_STORE, {}));
+    const migration = removeDemoUserAccounts(readJsonFile<Record<string, any>>(RUNTIME_ACCOUNT_STORE, {}), { keepSeededDemo: config.demo.enabled });
     migration.removedUserIds.forEach(id => removedDemoUserIds.add(id));
     const persisted = migration.store;
     for (const user of Array.isArray(persisted.users) ? persisted.users : []) {
@@ -1740,6 +1744,13 @@ async function startServer() {
     );
 
   // GET /api/auth/me — validate the current session and return the user.
+  // Demo configuration for the sign-in page. Credentials are exposed only in
+  // demo mode (never in production) and the endpoint never creates a session.
+  app.get('/api/demo/config', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.json({ success: true, ...demoConfigView(config.demo.enabled, config.demo.passwords) });
+  });
+
   app.get('/api/auth/me', (req, res) => {
     const identity = platformIdentity(req);
     if (!identity) {
@@ -2491,7 +2502,7 @@ async function startServer() {
     expiresAt: number;
   }
   const DOCTOR_SESSIONS: Map<string, DoctorSession> = new Map();
-  const DOCTOR_SESSION_TTL_MS = 12 * 60 * 60 * 1000; // 12 hours, sliding
+  const DOCTOR_SESSION_TTL_MS = config.sessionPolicy.professionalIdleMs; // sliding
 
   const issueDoctorSession = (doctorId: string): DoctorSession => {
     // Opportunistic cleanup of expired sessions.
@@ -5941,7 +5952,7 @@ Request ID: ${requestId}`,
     expiresAt: number;
   }
   const PHARMACY_PARTNER_SESSIONS: Map<string, PharmacyPartnerSession> = new Map();
-  const PHARMACY_PARTNER_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+  const PHARMACY_PARTNER_SESSION_TTL_MS = config.sessionPolicy.professionalIdleMs;
   const PHARMACY_PARTNER_LOGIN_ATTEMPTS: Map<string, AttemptWindow> = new Map();
   const PHARMACY_PARTNER_RESET_TOKENS: Map<string, { token: string; username: string; expiresAt: number; used: boolean }> = new Map();
 
@@ -6793,7 +6804,7 @@ Request ID: ${requestId}`,
     expiresAt: number;
   }
   const HOSPITAL_SESSIONS: Map<string, HospitalPortalSession> = new Map();
-  const HOSPITAL_SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+  const HOSPITAL_SESSION_TTL_MS = config.sessionPolicy.professionalIdleMs;
   const HOSPITAL_LOGIN_ATTEMPTS: Map<string, AttemptWindow> = new Map();
 
   const publicHospitalAccount = (a: HospitalPortalAccount, session?: HospitalPortalSession) => ({
@@ -7288,7 +7299,13 @@ Request ID: ${requestId}`,
       activity = NEWS_AUDIT.filter(a => a.actorId === accountId).map(a => ({ id: a.id, title: a.action, at: a.timestamp || a.at }));
       notifications = (AUTHORITY_NOTIFICATIONS.get(accountId) || []).map(n => ({ id: n.id, title: n.title, body: n.body }));
     }
-    return res.json({ success: true, role, accountId: user.id, profile, records: records.slice(-200), activity: activity.slice(-50).reverse(), notifications: notifications.slice(0, 50) });
+    const stored = role === 'user' ? PUBLIC_USERS.get(user.id)
+      : role === 'doctor' ? DOCTORS.get(accountId)
+      : role === 'hospital' ? HOSPITAL_ACCOUNTS.get(accountId)
+      : role === 'pharmacy' ? PHARMACY_PARTNER_ACCOUNTS.get(accountId)
+      : role === 'news' ? NEWS_ADMINS.get(accountId)
+      : undefined;
+    return res.json({ success: true, role, accountId: user.id, demo: isDemoSeedRecord(stored), profile, records: records.slice(-200), activity: activity.slice(-50).reverse(), notifications: notifications.slice(0, 50) });
   });
 
   // ---- Hospital portal auth endpoints ----
@@ -8124,7 +8141,7 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
     });
   };
   {
-    const migration = removeDemoDomainAccounts(readJsonFile<Record<string, any>>(RUNTIME_DOMAIN_STORE, {}), isRemovedDemoUserId);
+    const migration = removeDemoDomainAccounts(readJsonFile<Record<string, any>>(RUNTIME_DOMAIN_STORE, {}), isRemovedDemoUserId, { keepSeededDemo: config.demo.enabled });
     const persisted = migration.store;
     if (migration.changed) writeSecureJsonFile(RUNTIME_DOMAIN_STORE, { ...persisted, savedAt: new Date().toISOString() });
     const apply = (entries: any, setter: (key: any, value: any) => void) => {
@@ -8162,7 +8179,45 @@ Format responses cleanly with short markdown headings, brief paragraphs, and bul
     apply(persisted.hospitalRegistry as any, (k, v) => HOSPITAL_REGISTRY.set(k, v));
     apply(persisted.hospitalResetTokens as any, (k, v) => HOSPITAL_RESET_TOKENS.set(k, v));
   }
+  // Opt-in demo accounts. Runs after both stores are restored so repeated
+  // starts refresh the demo records instead of duplicating them.
+  if (config.demo.enabled) {
+    const { seeded } = applyDemoAccountSeed({
+      users: PUBLIC_USERS as any,
+      privateData: PRIVATE_DATA as any,
+      doctors: DOCTORS as any,
+      consentRequests: CONSENT_REQUESTS as any,
+      doctorNotifications: DOCTOR_NOTIFICATIONS as any,
+      hospitalAccounts: HOSPITAL_ACCOUNTS as any,
+      hospitalRegistry: HOSPITAL_REGISTRY as any,
+      hospitalAudit: HOSPITAL_AUDIT as any,
+      pharmacyAccounts: PHARMACY_PARTNER_ACCOUNTS as any,
+      inventoryAudit: INVENTORY_AUDIT as any,
+      newsAdmins: NEWS_ADMINS as any,
+      removedDemoUserIds,
+      newsPermissions: NEWS_ADMIN_ROLE_PERMISSIONS.NEWS_ADMIN,
+      now: new Date().toISOString(),
+    }, config.demo.passwords);
+    logger.warn('demo accounts enabled (non-production sample data)', { roles: seeded, partnerId: DEMO_PHARMACY_PARTNER_ID });
+    persistRuntimeAccounts();
+    persistDomainState();
+  }
   setInterval(() => persistDomainState(), 10000).unref();
+
+  // Flush runtime state on normal shutdown so sessions created in the last few
+  // seconds survive an ordinary restart or redeploy.
+  const flushAndExit = (signal: string) => {
+    try {
+      persistRuntimeAccounts();
+      persistDomainState();
+      logger.info('runtime state flushed', { signal });
+    } catch (err: any) {
+      logger.error('runtime state flush failed', { signal, error: String(err?.message || err) });
+    }
+    process.exit(0);
+  };
+  process.once('SIGTERM', () => flushAndExit('SIGTERM'));
+  process.once('SIGINT', () => flushAndExit('SIGINT'));
 
   // ----------------------------------------------------------------------
   // 6. API 404 boundary — unknown /api paths return JSON 404 in EVERY mode

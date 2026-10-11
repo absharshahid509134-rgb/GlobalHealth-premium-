@@ -4,6 +4,7 @@ import {
   ShieldCheck, CheckCircle2, AlertCircle, RefreshCw, KeyRound, HelpCircle, Stethoscope
 } from 'lucide-react';
 import { doctorPortalApi, type DoctorProfile } from './doctorPortalData';
+import { DemoFillButton } from '../auth/DemoFillButton';
 
 export type PortalAuthPhase = 'login' | 'signup' | 'forgot' | 'reset' | 'verify';
 
@@ -204,6 +205,10 @@ export const DoctorAuth: React.FC<DoctorAuthProps> = ({ initialPhase, onLoginSuc
               {/* ---------------- LOGIN ---------------- */}
               {phase === 'login' && (
                 <form onSubmit={handleLogin} noValidate className="space-y-3.5">
+                  <DemoFillButton
+                    role="doctor"
+                    onFill={(account) => { setIdentifier(account.identifier); setPassword(account.password); setFieldErr({}); setError(''); }}
+                  />
                   <div>
                     <label htmlFor="dp-email" className={labelCls}>Professional / Work Email</label>
                     <div className={fieldShell(Boolean(fieldErr.identifier))}>

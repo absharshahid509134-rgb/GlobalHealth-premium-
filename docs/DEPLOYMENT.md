@@ -56,6 +56,12 @@ through `startup configuration warning`).
   keys through your secret manager.
 - The AI assistant uses `GEMINI_API_KEY` server-side only.
 
+## Demo accounts
+
+`GH_DEMO_MODE` seeds sample accounts for local evaluation only. Leave it unset in
+production: the server ignores it when `NODE_ENV=production`, and no demo
+credentials are exposed. See [Unified authentication](unified-authentication.md#opt-in-demo-accounts-gh_demo_mode).
+
 ## Known limitations to plan around
 
 - Multi-instance deployments need shared file storage + a shared rate-limit /

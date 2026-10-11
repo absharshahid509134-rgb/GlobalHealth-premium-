@@ -68,6 +68,8 @@ const HospitalPortalInner: React.FC<HospitalPortalViewProps> = ({ onBackToPublic
   // a hospital (sign-up application), 'forgot' = password recovery. Both run
   // on the hospital authority AuthPage — the same engine used post sign-in.
   const [accountScreen, setAccountScreen] = useState<'apply' | 'forgot' | null>(null);
+  // Declared before the early return below so the hook count never changes between renders.
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   if (!signedInThisVisit || !currentUser || currentView === 'auth') {
     // A persisted session is being validated server-side — never flash the
@@ -117,6 +119,7 @@ const HospitalPortalInner: React.FC<HospitalPortalViewProps> = ({ onBackToPublic
           </div>
         )}
         <PortalCredentialForm
+          demoRole="hospital"
           title="Hospital Authority Portal"
           subtitle="Inpatient bed telemetry, ambulance dispatch, staff & finance — GlobalHealth Enterprise."
           icon={<Building2 className="h-7 w-7" />}
@@ -197,8 +200,6 @@ const HospitalPortalInner: React.FC<HospitalPortalViewProps> = ({ onBackToPublic
         return <DashboardView />;
     }
   };
-
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <div className="min-h-screen bg-[#F6FBF8] text-[#17221E] flex flex-col font-sans selection:bg-[#BDE4D5] selection:text-[#006B4F]">

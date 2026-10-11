@@ -307,6 +307,7 @@ export const PharmacyPortalApp: React.FC<PharmacyPortalAppProps> = ({
           </div>
         )}
         <PortalCredentialForm
+          demoRole="pharmacy"
           title="Pharmacy Porter — Partner Sign-In"
           subtitle="Verified pharmacy partners: prescriptions, stock, expiry, settlements & multi-branch orders."
           icon={<ShoppingBag className="h-7 w-7" />}

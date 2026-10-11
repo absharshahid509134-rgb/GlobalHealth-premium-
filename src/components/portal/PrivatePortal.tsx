@@ -7,6 +7,8 @@ import { apiFetch } from '../../services/authClient';
 type Workspace = {
   accountId: string;
   role: PlatformRole;
+  /** True for server-seeded demo accounts (sample data). */
+  demo?: boolean;
   profile: Record<string, unknown>;
   records: { id: string; title: string; status: string }[];
   activity: { id: string; title: string; at: string }[];
@@ -68,7 +70,7 @@ export function PrivatePortal({ role, onExit }: { role: PlatformRole; onExit: ()
     <header className="flex flex-wrap items-center justify-between gap-4 border-b bg-white px-6 py-5">
       <div className="flex items-center gap-3">
         <ShieldCheck className="h-9 w-9 text-medical-700" />
-        <div><p className="text-xs font-bold uppercase tracking-widest text-medical-700">GlobalHealth · Private workspace</p><h1 className="text-xl font-bold">{ROLE_NAMES[role]} Portal</h1></div>
+        <div><p className="text-xs font-bold uppercase tracking-widest text-medical-700">GlobalHealth · Private workspace</p><h1 className="text-xl font-bold">{ROLE_NAMES[role]} Portal</h1>{data.demo && <span className="mt-1 inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-bold text-amber-900">Demo account · sample data</span>}</div>
       </div>
       <div className="flex items-center gap-4"><span className="text-sm">{user?.fullName}</span><button onClick={signOut} className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm font-semibold"><LogOut size={16} />Sign out</button></div>
     </header>

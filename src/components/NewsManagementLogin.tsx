@@ -15,6 +15,7 @@ import {
   ServerAdmin,
   NewsMfaState
 } from '../services/newsGovernanceClient';
+import { DemoFillButton } from './auth/DemoFillButton';
 
 interface LoginResult {
   success: boolean;
@@ -276,6 +277,10 @@ export const NewsManagementLogin: React.FC<NewsManagementLoginProps> = ({ onAuth
           {/* CREDENTIALS */}
           {step === 'credentials' && (
             <form onSubmit={signIn} className="space-y-3">
+              <DemoFillButton
+                role="news"
+                onFill={(account) => { setIdentifier(account.identifier); setPassword(account.password); setError(''); }}
+              />
               <label className="block">
                 <span className={`mb-1 block text-xs font-bold ${isStandalone ? 'text-slate-400' : 'text-slate-500'}`}>Email / Official Account ID</span>
                 <input

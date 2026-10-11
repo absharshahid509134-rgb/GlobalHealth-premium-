@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Eye, EyeOff, Lock, Mail, ArrowRight, ShieldCheck, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useLocalization } from '../../context/LocalizationContext';
 import { loginUser, verifyTwoFactorLogin } from '../../services/authService';
 import { PublicUserAccount } from '../../types/auth';
 import { AvatarExpression } from './DoctorAvatar';
+import type { DemoPrefill } from '../../services/demoAccounts';
 
 interface LoginFormProps {
   onSuccess: (user: PublicUserAccount, token?: string) => void;
@@ -13,6 +14,8 @@ interface LoginFormProps {
   onRequiresVerification?: (data: { userId: string; email?: string; phone?: string; type: 'email' | 'phone' }) => void;
   /** Lets the animated assistant react to what the user is doing. */
   onAvatarInteract?: (expression: AvatarExpression, message?: string) => void;
+  /** Demo-mode credentials to fill (never submitted automatically). */
+  prefill?: DemoPrefill;
 }
 
 export const LoginForm: React.FC<LoginFormProps> = ({
@@ -21,11 +24,13 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   onRequestHelp,
   onOpenLegal,
   onRequiresVerification,
-  onAvatarInteract
+  onAvatarInteract,
+  prefill
 }) => {
   const { t } = useLocalization();
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
+
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
@@ -34,6 +39,14 @@ export const LoginForm: React.FC<LoginFormProps> = ({
   const [fieldErrors, setFieldErrors] = useState<{ identifier?: string; password?: string }>({});
   const [twoFactorPending, setTwoFactorPending] = useState<{ challengeId: string; method: string } | null>(null);
   const [twoFactorCode, setTwoFactorCode] = useState('');
+
+  useEffect(() => {
+    if (!prefill) return;
+    setIdentifier(prefill.identifier);
+    setPassword(prefill.password);
+    setFieldErrors({});
+    setErrorMessage('');
+  }, [prefill?.nonce]);
 
   const validate = () => {
     const next: { identifier?: string; password?: string } = {};

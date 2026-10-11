@@ -13,6 +13,12 @@ responsibility.
   and consumed on success.
 - 2FA: RFC 6238 TOTP. Setup generates a unique base32 secret; a second-factor
   challenge is required before a session is issued when 2FA is enabled.
+- Demo accounts (opt-in, `GH_DEMO_MODE=true`, never in production): normal
+  password accounts with sample data. Sign-in goes through the same password
+  verifier, MFA and session issuance as any account. Sample credentials are
+  exposed through `/api/demo/config` only while demo mode is on, and the login
+  UI only shows them then. Demo records carry a marker so they can be pruned
+  when demo mode is turned off, and real records are never overwritten.
 - Reset flows: opaque 256-bit tokens, same-origin delivery, no token returned in
   the browser response in production, existing sessions revoked after reset.
 
@@ -22,6 +28,9 @@ responsibility.
   route is derived server-side from the token.
 - Sliding expiry for public/doctor/hospital/pharmacy/news sessions.
 - Logout destroys the server session.
+- Session restore: only a 401/403 from `/api/auth/me` clears a stored session.
+  Network and 5xx errors keep the token and offer a retry, so a temporary outage
+  does not sign the user out.
 - `authenticate`, `requireDoctor`, `requireHospitalToken`,
   `requireMarketPartner`, `requireNewsAdmin`, and `requireAuthority` reject
   expired/revoked/foreign sessions.
@@ -63,3 +72,12 @@ responsibility.
   protection are not yet implemented.
 - State is JSON-file backed, not relational DB (see migration plan).
 - No automated IDOR/security test suite yet (unit tests only at this point).
+- Demo passwords default to documented values. They are for local evaluation only.
+  Set `GH_DEMO_PASSWORD_<ROLE>` for any shared non-production environment.
+- The User health dashboard (`PatientEhrContext`) is a local, browser-stored model.
+  It is not hydrated from `/api/me/*`, so server-side sample profile data is not
+  shown there.
+- Demo Fill controls cover every professional sign-in screen, in demo mode only. The
+  demo sample-data badge covers pharmacy and news only. The News demo account has no
+  sample articles, and the hospital workspace fix (a hook-order crash) is verified in
+  the browser only, not in the automated suite.
