@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Eye, EyeOff, KeyRound, Lock, ShieldCheck, User, UserPlus } from 'lucide-react';
+import type { PlatformRole } from '../../core/platformRoles';
+import { DemoFillButton } from '../auth/DemoFillButton';
 
 export interface PortalCredentialFormProps {
   title: string;
@@ -24,6 +26,8 @@ export interface PortalCredentialFormProps {
   onBack?: () => void;
   /** Opens the portal's own "create a new account" screen, when available. */
   onCreateAccount?: () => void;
+  /** When set, shows a Fill Demo Account control for this role (demo mode only). */
+  demoRole?: PlatformRole;
   /** Opens the portal's own password-recovery screen, when available. */
   onForgotPassword?: () => void;
   createAccountLabel?: string;
@@ -48,6 +52,7 @@ export const PortalCredentialForm: React.FC<PortalCredentialFormProps> = ({
   onSuccess,
   onBack,
   onCreateAccount,
+  demoRole,
   onForgotPassword,
   createAccountLabel = 'Create a new account',
   forgotPasswordLabel = 'Forgot password?',
@@ -99,6 +104,15 @@ export const PortalCredentialForm: React.FC<PortalCredentialFormProps> = ({
               Secure sign-in required
             </span>
           </div>
+
+          {demoRole && (
+            <div className="mb-4">
+              <DemoFillButton
+                role={demoRole}
+                onFill={(account) => { setIdentifier(account.identifier); setPassword(account.password); setError(null); }}
+              />
+            </div>
+          )}
 
           {/* Credential form */}
           <form onSubmit={handleSubmit} className="space-y-4" noValidate>

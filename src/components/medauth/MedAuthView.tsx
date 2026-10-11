@@ -80,6 +80,7 @@ const MedAuthInnerView: React.FC<MedAuthViewProps> = ({ onBackToGlobalHealth }) 
           </div>
         )}
         <PortalCredentialForm
+          demoRole="doctor"
           title="Doctor Portal — MedAuth Engine™"
           subtitle="State Board Registry & private physician workspace. Sign in with your registered doctor credentials."
           icon={<Stethoscope className="h-7 w-7" />}

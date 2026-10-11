@@ -106,15 +106,23 @@ server APIs. The server remains the authentication and authorization authority.
   on. When it is off the response is `{ "enabled": false, "accounts": [] }`.
   The login UI shows a **Fill Demo Account** button only when that response
   is enabled. The button fills the form and never submits it.
-- Professional workspaces served from the generic private portal show a
-  "Demo account · sample data" badge (`workspace.demo` is true only for seeded
-  demo accounts). The doctor portal has no badge yet.
-- Demo sign-in is not covered on the portal-specific sign-in screens
-  (Doctor, Hospital, Pharmacy and News portal screens). Those screens keep
-  their own session flow and have no Fill button. A successful central
-  sign-in for a professional role opens that portal's own sign-in, which the
-  browser check confirmed for the Hospital portal. Demo accounts are verified
-  through the central sign-in and the API.
+- Professional workspaces served from the generic private portal (pharmacy and
+  news) show a "Demo account · sample data" badge. `workspace.demo` is true only for
+  seeded demo accounts. The hospital and doctor workspaces have no badge yet.
+- Every professional sign-in screen has a Fill Demo Account control that appears only in
+  demo mode and only fills the form. It never submits. This covers the central
+  sign-in (`#auth` with the role selected) and each portal's own sign-in:
+  hospital (`PortalCredentialForm`), pharmacy (`PortalCredentialForm`), doctor
+  (`DoctorAuth`, and MedAuth through `PortalCredentialForm`) and news
+  (`NewsManagementLogin`).
+- Hospital and pharmacy sign-in are two steps. The central sign-in comes first, then the
+  portal's own sign-in. Each step has its own Fill button. News adds an MFA step. In demo
+  mode the MFA code is shown on screen, as non-production demo delivery.
+- Demo sign-in goes through the same server verifiers as real accounts. Browser checks in
+  this repository (headless Chromium, not part of the test suite) confirmed each role
+  reaches its workspace.
+- Sample-data gaps: the News demo account has no sample articles, so its Records count is 0.
+  The User dashboard is local-only and does not show the server-side sample profile.
 
 ## Session restore and logout
 

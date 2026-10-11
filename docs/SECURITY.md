@@ -77,6 +77,7 @@ responsibility.
 - The User health dashboard (`PatientEhrContext`) is a local, browser-stored model.
   It is not hydrated from `/api/me/*`, so server-side sample profile data is not
   shown there.
-- The Doctor, Hospital, Pharmacy and News portal-specific sign-in screens have no
-  demo Fill button. Demo accounts are verified through the central sign-in and
-  the API. The generic private-portal badge does not cover the doctor portal.
+- Demo Fill controls cover every professional sign-in screen, in demo mode only. The
+  demo sample-data badge covers pharmacy and news only. The News demo account has no
+  sample articles, and the hospital workspace fix (a hook-order crash) is verified in
+  the browser only, not in the automated suite.
