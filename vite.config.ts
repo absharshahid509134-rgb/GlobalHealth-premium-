@@ -24,7 +24,14 @@ export default defineConfig(() => {
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',
       // Disable file watching when DISABLE_HMR is true to save CPU during agent edits.
-      watch: process.env.DISABLE_HMR === 'true' ? null : {},
+      // Otherwise ignore the paths that change for reasons unrelated to app source:
+      // the server rewrites its own persisted state on a timer, the standalone
+      // Astro site builds into its own dist/, and `npm run build` writes dist/.
+      // Watching them makes the dev server reload the page on every persistence
+      // flush and every site rebuild, which destabilises the live preview.
+      watch: process.env.DISABLE_HMR === 'true'
+        ? null
+        : { ignored: ['**/data/runtime/**', '**/site/**', '**/dist/**'] },
     },
   };
 });
